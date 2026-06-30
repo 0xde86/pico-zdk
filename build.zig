@@ -1,12 +1,12 @@
 const std = @import("std");
 
 /// Which board we are building firmware for.
-const Board = enum { pico, pico2 };
+pub const Board = enum { pico, pico2 };
 
 /// On the RP2350 (Pico 2) each core can boot as an ARM Cortex-M33 or a RISC-V
 /// Hazard3. This selects which one we target. Ignored for the RP2040 (Pico),
 /// which is always ARM Cortex-M0+.
-const Arch = enum { arm, riscv };
+pub const Arch = enum { arm, riscv };
 
 pub fn build(b: *std.Build) void {
     // ----------------------------------------------------------------------
@@ -51,22 +51,16 @@ pub fn build(b: *std.Build) void {
 
         const name = b.dupe(entry.name);
         const main_path = b.fmt("examples/{s}/main.zig", .{name});
-        const exe = b.addExecutable(.{
-            .name = name,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path(main_path),
-                .target = target,
-                .optimize = optimize,
-                .imports = &.{
-                    .{ .name = "pico_zdk", .module = pico_zdk },
-                },
-            }),
-        });
-        // Bare-metal firmware: the reset handler is the entry point, and there
-        // is no host runtime to pull in.
-        exe.entry = .{ .symbol_name = "_start" };
 
-        const install = b.addInstallArtifact(exe, .{});
+        const fw = addFirmware(b, pico_zdk, .{
+            .name = name,
+            .root_source_file = b.path(main_path),
+            .board = board,
+            .arch = arch,
+            .optimize = optimize,
+        });
+
+        const install = b.addInstallArtifact(fw, .{});
 
         // Per-example step: `zig build blinky`.
         const one = b.step(name, b.fmt("Build the '{s}' example", .{name}));
@@ -123,4 +117,27 @@ fn firmwareQuery(board: Board, arch: Arch) std.Target.Query {
             },
         },
     };
+}
+
+/// Helper to build pico/pico2 firmware. Pass the `pico_zdk` module to link
+/// against: this package's own module internally, or `dep.module("pico_zdk")`
+/// from a downstream `build.zig`.
+pub fn addFirmware(b: *std.Build, pico_zdk: *std.Build.Module, opts: struct {
+    name: []const u8,
+    root_source_file: std.Build.LazyPath,
+    board: Board = .pico,
+    arch: Arch = .arm,
+    optimize: std.builtin.OptimizeMode = .ReleaseSmall,
+}) *std.Build.Step.Compile {
+    const target = b.resolveTargetQuery(firmwareQuery(opts.board, opts.arch));
+    const exe = b.addExecutable(.{ .name = opts.name, .root_module = b.createModule(.{
+        .root_source_file = opts.root_source_file,
+        .target = target,
+        .optimize = opts.optimize,
+        .imports = &.{.{ .name = "pico_zdk", .module = pico_zdk }},
+    }) });
+    // Bare-metal firmware: the reset handler is the entry point, and there
+    // is no host runtime to pull in.
+    exe.entry = .{ .symbol_name = "_start" };
+    return exe;
 }

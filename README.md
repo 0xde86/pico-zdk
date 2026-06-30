@@ -77,11 +77,56 @@ Once published, add it with:
 zig fetch --save git+https://github.com/0xde86/pico-zdk
 ```
 
-and import the module in your `build.zig`:
+This adds a `pico_zdk` entry to your `build.zig.zon` `dependencies`.
+
+### The `addFirmware` build helper (recommended)
+
+`pico-zdk`'s `build.zig` exports a helper that builds a firmware executable for
+you: it resolves the bare-metal target from `board`/`arch`, sets the `_start`
+entry point, and links the `pico_zdk` module. Import the dependency's
+`build.zig` namespace with `@import("pico_zdk")` and call it:
+
+```zig
+const std = @import("std");
+const pico_zdk = @import("pico_zdk");
+
+pub fn build(b: *std.Build) void {
+    const board: pico_zdk.Board = .pico2; // .pico (default) or .pico2
+    const arch: pico_zdk.Arch = .arm;     // .arm (default) or .riscv, for pico2 only
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
+
+    // The same board/arch select the target for both the pico_zdk module and
+    // your firmware exe, so they always match.
+    const dep = b.dependency("pico_zdk", .{
+        .board = board,
+        .arch = arch,
+        .optimize = optimize,
+    });
+
+    const fw = pico_zdk.addFirmware(b, dep.module("pico_zdk"), .{
+        .name = "my_firmware",
+        .root_source_file = b.path("src/main.zig"),
+        .board = board,
+        .arch = arch,
+        .optimize = optimize,
+    });
+
+    b.addInstallArtifact(fw, .{});
+}
+```
+
+`@import("pico_zdk")` gives you the build-time decls (`Board`, `Arch`,
+`addFirmware`); `dep.module("pico_zdk")` gives you the library module to link.
+
+### Wiring it manually
+
+If you'd rather not use the helper, import the module directly and configure the
+target yourself:
 
 ```zig
 const pico = b.dependency("pico_zdk", .{ .target = target, .optimize = optimize });
 exe.root_module.addImport("pico_zdk", pico.module("pico_zdk"));
+exe.entry = .{ .symbol_name = "_start" }; // bare-metal: reset handler is the entry point
 ```
 
 ## Design principles
