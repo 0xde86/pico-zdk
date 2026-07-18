@@ -11,7 +11,6 @@ This is **not** a binding to `pico-sdk`. There is no C. Everything - startup cod
 
 > ⚠️ **Status: early / experimental.** Expect breaking changes on every commit until the API stabilizes.
 
----
 
 ## Why Zig?
 
@@ -132,11 +131,7 @@ runtime and are not reachable by importing the `pico_zdk` module on its own.
 ## Design principles
 
 I want to to try to implement it the way so it feels like the Zig standard library, and not like a 1:1 port of the C SDK:
-
-- **Canonical Zig APIs.** `init`/`deinit`, explicit error sets, options structs with defaults, `*std.Io.Writer` for output.
-- **Comptime-first configuration.** Pin maps and peripheral setup are checked at compile time wherever possible.
-- **Datasheet-accurate registers.** Each peripheral's registers are `packed struct(u32)` whose fields match the RP2040/RP2350 datasheets, accessed through `volatile`.
-- **Zero hidden cost.** No allocator is required for the core HAL; anything that allocates takes an `Allocator` explicitly.
+**Canonical Zig APIs**, **Comptime-first configuration**, **Datasheet-accurate registers**, **Zero hidden cost**.
 
 ## References
 
@@ -144,6 +139,122 @@ I want to to try to implement it the way so it feels like the Zig standard libra
 - [Raspberry Pi RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)
 - [Official C/C++ `pico-sdk`](https://github.com/raspberrypi/pico-sdk)
 - [MicroZig](https://github.com/ZigEmbeddedGroup/microzig) - the Zig Embedded Group's bare-metal framework; a useful study of MMIO and register-generation patterns in Zig
+
+## Roadmap
+
+### Core SDK → v1.0
+
+- [x] Milestone 0 — Build skeleton
+  - [x] Build all three board/architecture targets
+  - [x] Provide example discovery and the `addFirmware` build helper
+- [x] Milestone 1 — Bootable images and UF2 tooling
+  - [x] Add linker layouts, runtime startup code, and boot blocks
+  - [x] Ship the UF2 converter and bootable `led_on` example
+- [ ] Milestone 2 — Chip registers, resets, and GPIO
+  - [ ] Add typed RP2040/RP2350 registers and reset control
+  - [ ] Ship the GPIO HAL and real `blinky` example
+- [ ] Milestone 3 — Clocks and PLLs
+  - [ ] Configure the external crystal oscillator, phase-locked loops, clock generators, and ticks
+  - [ ] Ship the `clock_gpout` example
+- [ ] Milestone 4 — Timer and sleep
+  - [ ] Add microsecond timing, deadlines, and sleep helpers
+  - [ ] Make `blinky` run at an exact 1 Hz
+- [ ] Milestone 5 — UART, logging, and panic handling
+  - [ ] Add UART-backed standard I/O and logging interfaces
+  - [ ] Ship `hello_uart` and a diagnostic panic handler
+- [ ] Milestone 6 — Tests on hardware (TOH)
+  - [ ] Add on-target tests as `hardware_tests` example
+  - [ ] Implement host-side build tool for running TOH (runner via pico debug probe)
+- [ ] Milestone 7 — Interrupts and alarms
+  - [ ] Add ARM and Hazard3 interrupt backends and timer alarms
+  - [ ] Ship `blinky_irq` and buffered `uart_echo`
+- [ ] Milestone 8 — PWM and ADC
+  - [ ] Add PWM slices and ADC sampling support
+  - [ ] Ship `pwm_fade` and `adc_temp`
+- [ ] Milestone 9 — SPI and I2C
+  - [ ] Add blocking SPI and I2C master drivers
+  - [ ] Ship `spi_loopback` and `i2c_scan`
+- [ ] Milestone 10 — DMA
+  - [ ] Add paced, chained, and interrupt-driven transfers
+  - [ ] Ship `uart_dma` and DMA TOH coverage
+- [ ] Milestone 11 — PIO and comptime assembler
+  - [ ] Add PIO state-machine control and instruction encoding
+  - [ ] Ship `pio_blink` and `ws2812`
+- [ ] Milestone 12 — Bootrom and flash programming
+  - [ ] Add bootrom lookup and flash-safe erase/program APIs
+  - [ ] Ship `flash_counter` and `zig build flash`
+- [ ] Milestone 13 — Multicore and synchronization
+  - [ ] Add core launch, spinlocks, FIFO, and flash lockout
+  - [ ] Ship `multicore_blink`
+- [ ] Milestone 14 — USB CDC device
+  - [ ] Add a native USB controller and device stack
+  - [ ] Ship `usb_console` and button-free reflashing
+- [ ] Milestone 15 — System polish and v1.0
+  - [ ] Add watchdog, unique ID, and real-time clock support
+  - [ ] Complete documentation
+
+### RP2350 security
+
+- [ ] Milestone 16 — OTP, TRNG, and SHA-256
+  - [ ] Add safe OTP access, true randomness, and hardware hashing
+  - [ ] Ship `otp_dump` and `trng_rand`
+- [ ] Milestone 17 — Signed-image secure boot
+  - [ ] Add image signing, key management, and provisioning tools
+  - [ ] Verify signed boot and rejection of tampered images
+- [ ] Milestone 18 — TrustZone, ACCESSCTRL, and RCP
+  - [ ] Split secure/non-secure runtimes and enforce access policy
+  - [ ] Ship `trustzone_blink` with fault reporting
+- [ ] Milestone 19 — Encrypted boot and A/B partitions
+  - [ ] Add encryption, anti-rollback, and A/B update support
+  - [ ] Ship automated update, rollback, and release packaging
+
+### Wireless and networking
+
+- [ ] Milestone 20 — CYW43 bring-up
+  - [ ] Add W-board definitions and the PIO/DMA gSPI transport
+  - [ ] Run `blinky` through the CYW43 GPIO
+- [ ] Milestone 21 — Wi-Fi control path
+  - [ ] Add scanning, WPA2 joining, and Ethernet frame transport
+  - [ ] Ship `wifi_scan` and `wifi_join`
+- [ ] Milestone 22 — Native Zig TCP/IP stack
+  - [ ] Add ARP, IPv4, ICMP, DHCP, DNS, UDP, and TCP
+  - [ ] Ship ping support and `http_hello`
+
+### USB and Bluetooth LE
+
+- [ ] Milestone 23 — USB device classes
+  - [ ] Add composite descriptors, HID, MSC, and a shared event loop
+  - [ ] Ship keyboard, mass-storage, and composite examples
+- [ ] Milestone 24 — USB host
+  - [ ] Add host enumeration and HID report handling
+  - [ ] Ship the `usb_kbd` example
+- [ ] Milestone 25 — a over CYW43
+  - [ ] Add firmware upload, bus arbitration, and typed HCI packets
+  - [ ] Ship `hci_info` and `ble_beacon`
+- [ ] Milestone 26 — BLE peripheral
+  - [ ] Add L2CAP, GATT server, pairing, and bonding
+  - [ ] Ship the `ble_temp_sensor` service
+- [ ] Milestone 27 — BLE central
+  - [ ] Add scanning, GATT client support, and Wi-Fi coexistence
+  - [ ] Ship `ble_scanner` and `ble_sensor_reader`
+
+### Hardware completion
+
+- [ ] Milestone 28 — Interpolators, DCP, and float acceleration
+  - [ ] Add chip-specific compute and GPIO acceleration APIs
+  - [ ] Ship `interp_texture` and `mandelbrot_bench`
+- [ ] Milestone 29 — HSTX and DVI output
+  - [ ] Add HSTX, TMDS encoding, and DMA-fed scanlines
+  - [ ] Ship `dvi_color_bars` for Pico 2
+- [ ] Milestone 30 — Voltage and power management
+  - [ ] Add voltage control, overclocking, sleep, and dormant modes
+  - [ ] Ship `overclock` and `dormant_wake`
+- [ ] Milestone 31 — Remaining peripherals and tooling polish
+  - [ ] Complete slave modes, metadata
+  - [ ] Debug I/O
+  - [ ] XIP controls
+
+---
 
 ## License
 
