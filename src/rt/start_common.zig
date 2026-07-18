@@ -42,30 +42,14 @@ extern var __bss_end: u8;
 /// Copies initialized `.data` from its flash load address into RAM and clears
 /// `.bss`. Call once, before any code that reads or writes static storage.
 inline fn memory_init() void {
-    copyData();
-    zeroBss();
-}
+    const data: [*]u8 = @ptrCast(&__data_start);
+    const data_src: [*]const u8 = @ptrCast(&__data_load_start);
+    const data_len = @intFromPtr(&__data_end) - @intFromPtr(&__data_start);
+    @memcpy(data[0..data_len], data_src[0..data_len]);
 
-inline fn copyData() void {
-    var source: [*]const u8 = @ptrCast(&__data_load_start);
-    var destination: [*]u8 = @ptrCast(&__data_start);
-    const end = @intFromPtr(&__data_end);
-
-    while (@intFromPtr(destination) < end) {
-        destination[0] = source[0];
-        source += 1;
-        destination += 1;
-    }
-}
-
-inline fn zeroBss() void {
-    var destination: [*]u8 = @ptrCast(&__bss_start);
-    const end = @intFromPtr(&__bss_end);
-
-    while (@intFromPtr(destination) < end) {
-        destination[0] = 0;
-        destination += 1;
-    }
+    const bss: [*]u8 = @ptrCast(&__bss_start);
+    const bss_len = @intFromPtr(&__bss_end) - @intFromPtr(&__bss_start);
+    @memset(bss[0..bss_len], 0);
 }
 
 /// Parks the core in a low-power wait loop. `wfi` ("wait for interrupt") is a
