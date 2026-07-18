@@ -3,6 +3,7 @@
 //!
 //! Both the Cortex-M and Hazard3 startup paths finish their arch-specific
 //! register setup and then hand off here, so the "init memory, call main"
+//! is done.
 //!
 //! The linker stores initialized `.data` at a flash load address but expects it
 //! at its RAM virtual address, and reserves `.bss` without initializing it.
