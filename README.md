@@ -28,8 +28,14 @@ build.zig            Build graph: board/arch target selection, examples, tests
 build.zig.zon        Package manifest (name: pico_zdk, min Zig 0.16.0)
 src/
   root.zig           Public API surface - the single library module's root
+  rt/                Private bare-metal runtime: startup, vectors, boot2 /
+                     IMAGE_DEF, memory init, and per-board linker scripts
+tools/
+  boot2_image/       Host build tool: checksums the RP2040 boot2 into a Zig module
+  uf2/               Host build tool: packs a firmware ELF into a drag-and-drop .uf2
 examples/
   minimal/main.zig   Smallest firmware that builds for the target
+  led_on/main.zig    Turns the on-board LED on with raw register writes (no HAL)
   blinky/main.zig    LED blink example (placeholder for now)
 ```
 
@@ -118,16 +124,10 @@ pub fn build(b: *std.Build) void {
 `@import("pico_zdk")` gives you the build-time decls (`Board`, `Arch`,
 `addFirmware`); `dep.module("pico_zdk")` gives you the library module to link.
 
-### Wiring it manually
-
-If you'd rather not use the helper, import the module directly and configure the
-target yourself:
-
-```zig
-const pico = b.dependency("pico_zdk", .{ .target = target, .optimize = optimize });
-exe.root_module.addImport("pico_zdk", pico.module("pico_zdk"));
-exe.entry = .{ .symbol_name = "_start" }; // bare-metal: reset handler is the entry point
-```
+`addFirmware` is the only supported way to build firmware. It owns the pieces
+that make an image bootable — the `_start` reset handler, the linker script, and
+the RP2040 boot2 / RP2350 `IMAGE_DEF` blocks — all of which live in the private
+runtime and are not reachable by importing the `pico_zdk` module on its own.
 
 ## Design principles
 

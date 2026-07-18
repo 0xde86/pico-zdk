@@ -1,18 +1,18 @@
-//! By convention, root.zig is the root source file when making a package.
-const std = @import("std");
-const Io = std.Io;
+//! pico-zdk: a from-scratch RP2040/RP2350 SDK in Zig.
+//!
+//! This file is the library's only public API surface. As the HAL lands, its
+//! curated modules are re-exported here (and only here) - for example:
+//!
+//!     pub const gpio = @import("hal/gpio.zig");
+//!     pub const Uart = @import("hal/Uart.zig");
+//!
+//! Consumers import this module; internal paths under `src/` stay private.
 
-/// This is a documentation comment to explain the `printAnotherMessage` function below.
-///
-/// Accepting an `Io.Writer` instance is a handy way to write reusable code.
-pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
-    try writer.print("Run `zig build test` to run the tests.\n", .{});
-}
+test {
+    // Force-analyze the host-testable runtime logic under `zig build test`.
+    _ = @import("rt/picobin.zig");
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+    // Force-analyze every declaration re-exported from this root as the
+    // curated public API lands here.
+    @import("std").testing.refAllDecls(@This());
 }
