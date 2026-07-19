@@ -427,6 +427,7 @@ fn firmwareQuery(core: Core) std.Target.Query {
         .cortex_m33 => .{
             .cpu_arch = .thumb,
             .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m33 },
+            .cpu_features_add = std.Target.arm.featureSet(&.{ .dsp, .fp_armv8d16sp }),
             .os_tag = .freestanding,
             .abi = .eabihf,
         },

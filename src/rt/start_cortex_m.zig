@@ -20,6 +20,15 @@ extern var __stack_top: u8;
 /// RP2350 3.7.6, ARM SCB register map.
 const scb_vtor: *volatile u32 = @ptrFromInt(0xe000_ed08);
 
+/// System Control Block Coprocessor Access Control Register (Armv8-M). CPACR
+/// controls software access to the RP2350 Cortex-M33's optional coprocessors.
+/// Datasheet: RP2350 3.7.6, ARM SCB register map.
+const scb_cpacr: *volatile u32 = @ptrFromInt(0xe000_ed88);
+
+// CP10 and CP11 jointly control the single-precision floating-point extension.
+// Both two-bit fields must be 0b11 for privileged and unprivileged access.
+const cpacr_fpu_full_access: u32 = (0b11 << 20) | (0b11 << 22);
+
 const Vector = ?*const anyopaque;
 
 // External interrupt slots after the 16 architectural exceptions: RP2040 has 26,
@@ -75,7 +84,20 @@ pub export const vector_table linksection(".vectors") = VectorTable{
 pub export fn _start() linksection(".reset") callconv(.c) noreturn {
     scb_vtor.* = @intFromPtr(&vector_table);
 
+    if (!is_v6m) enableFpu();
+
     common.entry();
+}
+
+/// Enables the Cortex-M33 single-precision FPU before application code runs.
+/// DSB completes the CPACR write and ISB makes subsequent instructions observe
+/// the updated coprocessor access permissions, as required by Armv8-M.
+inline fn enableFpu() void {
+    scb_cpacr.* |= cpacr_fpu_full_access;
+    asm volatile (
+        \\ dsb
+        \\ isb
+        ::: .{ .memory = true });
 }
 
 fn defaultHandler() callconv(.c) noreturn {

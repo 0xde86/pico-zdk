@@ -390,6 +390,7 @@ check_rp2350_arm() {
     local image_def="${work_dir}/rp2350-arm.image_def.bin"
     local vectors="${work_dir}/rp2350-arm.vectors.bin"
     local disassembly="${work_dir}/rp2350-arm.disassembly.txt"
+    local attributes="${work_dir}/rp2350-arm.attributes.txt"
     local start_addr
     local stack_top
 
@@ -418,6 +419,7 @@ check_rp2350_arm() {
     check_hex "rp2350-arm: block end marker" ab123579 "$(read_u32_le "${image_def}" 16)"
 
     llvm-objdump -d "${elf}" >"${disassembly}"
+    llvm-readelf -A "${elf}" >"${attributes}"
     # The startup must materialize the VTOR address 0xe000ed08. Accept either the
     # Cortex-M33 MOVW/MOVT pair (today's codegen) or a literal-pool load, so a
     # future code generator that lowers the constant differently still passes.
@@ -425,6 +427,18 @@ check_rp2350_arm() {
         '(movw[[:space:]].*#0xed08|0xe000ed08)' "${disassembly}"
     check_contains "rp2350-arm: startup materializes VTOR high half (0xe000)" \
         '(movt[[:space:]].*#0xe000|0xe000ed08)' "${disassembly}"
+    check_contains "rp2350-arm: ELF advertises an Armv8 FP-D16 unit" \
+        'Description: ARMv8-a FP-D16' "${attributes}"
+    check_contains "rp2350-arm: ELF limits hard-float use to single precision" \
+        'Description: Single-Precision' "${attributes}"
+    check_contains "rp2350-arm: ELF advertises the Cortex-M33 DSP extension" \
+        'TagName: DSP_extension' "${attributes}"
+    check_contains "rp2350-arm: startup materializes CPACR low half (0xed88)" \
+        '(movw[[:space:]].*#0xed88|0xe000ed88)' "${disassembly}"
+    check_contains "rp2350-arm: startup completes the CPACR write with DSB" \
+        'dsb([[:space:]]|$)' "${disassembly}"
+    check_contains "rp2350-arm: startup synchronizes FPU access with ISB" \
+        'isb([[:space:]]|$)' "${disassembly}"
 }
 
 check_rp2350_riscv() {
