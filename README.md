@@ -100,10 +100,11 @@ pub fn build(b: *std.Build) void {
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall }),
     });
 
-    b.installArtifact(sdk.addFirmware(.{
+    const firmware = sdk.addFirmware(.{
         .name = "my_firmware",
         .root_source_file = b.path("src/main.zig"),
-    }));
+    });
+    firmware.install();
 }
 ```
 
@@ -111,7 +112,9 @@ pub fn build(b: *std.Build) void {
 gave the dependency in `build.zig.zon`. Reuse one `Sdk` for several programs on
 one platform; create another `Sdk` for another platform.
 
-`sdk.addFirmware` is the only supported way to build firmware.
+`sdk.addFirmware` is the only supported way to build firmware. It returns a
+configured `Firmware` containing `.elf` and `.uf2` outputs; `install()` adds
+both to the consumer's install step.
 
 ## Design principles
 

@@ -1,0 +1,12 @@
+.{
+    .name = .pico_zdk_build_api_test,
+    .version = "0.0.0",
+    .fingerprint = 0x60a5e4a3def8a9a4,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .renamed_zdk = .{
+            .path = "../../..",
+        },
+    },
+    .paths = .{""},
+}

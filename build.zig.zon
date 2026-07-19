@@ -74,7 +74,9 @@
         "build.zig",
         "build.zig.zon",
         "src",
-        "tools",
+        // tools/build_api_test is test-only
+        "tools/boot2_image",
+        "tools/uf2",
         "LICENSE",
         "README.md",
     },

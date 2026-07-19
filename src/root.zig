@@ -14,7 +14,7 @@ test {
 
     // Configuration intake; analyzed under both test configurations (the
     // build instantiates this suite once per chip).
-    _ = @import("config.zig");
+    _ = @import("config");
 
     // Force-analyze every declaration re-exported from this root as the
     // curated public API lands here.

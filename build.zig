@@ -35,9 +35,39 @@ const Config = struct {
     core: Core,
 };
 
+/// A configured firmware's linked ELF and drag-and-drop UF2 image.
+///
+/// Both outputs are derived from the same executable and `Sdk` configuration,
+/// so the UF2 family ID cannot disagree with the linked target.
+pub const Firmware = struct {
+    /// Builder that owns the output and installation steps.
+    b: *std.Build,
+    /// Artifact base name, also used for the installed UF2 filename.
+    name: []const u8,
+    /// Linked bare-metal executable.
+    elf: *std.Build.Step.Compile,
+    /// UF2 image generated from `elf`, suitable for the BOOTSEL drive.
+    uf2: std.Build.LazyPath,
+
+    /// Adds both the ELF and UF2 image to the consumer's install step.
+    pub fn install(firmware: *const Firmware) void {
+        firmware.installTo(firmware.b.getInstallStep());
+    }
+
+    /// Installs the ELF (as `<name>`) and the UF2 image (as `<name>.uf2`)
+    /// into the binary install directory and attaches both to `step`.
+    pub fn installTo(firmware: *const Firmware, step: *std.Build.Step) void {
+        const b = firmware.b;
+        const install_elf = b.addInstallBinFile(firmware.elf.getEmittedBin(), firmware.name);
+        const install_uf2 = b.addInstallBinFile(firmware.uf2, b.fmt("{s}.uf2", .{firmware.name}));
+        step.dependOn(&install_elf.step);
+        step.dependOn(&install_uf2.step);
+    }
+};
+
 /// A configured firmware-building capability. Captures the validated
 /// board/arch selection, the resolved target, the library module, and the
-/// single `zdk_config` options module once, so one firmware cannot combine a
+/// single resolved configuration module once, so one firmware cannot combine a
 /// library module and a target that disagree.
 pub const Sdk = struct {
     /// Builder that owns the firmware modules and artifacts: the consumer's
@@ -50,10 +80,13 @@ pub const Sdk = struct {
     target: std.Build.ResolvedTarget,
     /// The configured library module every firmware links against.
     module: *std.Build.Module,
-    /// The `zdk_config` options module shared by the library and the runtime.
+    /// The resolved `config` module shared by the library and the runtime.
+    /// It is the sole importer of the generated `zdk_config` options module.
     config_module: *std.Build.Module,
     /// Checksummed RP2040 second-stage bootloader image; null on RP2350.
     boot2_image: ?*std.Build.Module,
+    /// Host tool that converts linked firmware ELFs to UF2 images.
+    uf2_tool: *std.Build.Step.Compile,
 
     pub const Options = struct {
         board: Board,
@@ -68,10 +101,11 @@ pub const Sdk = struct {
     ///     const pico_zdk = @import("pico_zdk");
     ///
     ///     const sdk = pico_zdk.Sdk.init(b, .{ .board = .pico, ... });
-    ///     b.installArtifact(sdk.addFirmware(.{
+    ///     const firmware = sdk.addFirmware(.{
     ///         .name = "my_firmware",
     ///         .root_source_file = b.path("src/main.zig"),
-    ///     }));
+    ///     });
+    ///     firmware.install();
     ///
     /// Reuse one `Sdk` for several programs on one platform; create another
     /// `Sdk` for another platform.
@@ -80,13 +114,14 @@ pub const Sdk = struct {
         return create(dep.builder, b, opts);
     }
 
-    /// Builds one firmware image for this SDK's platform. Everything besides
-    /// the program itself - target, configuration, runtime, linker script,
-    /// boot metadata - is owned by the `Sdk`, so it cannot drift per firmware.
+    /// Builds one firmware ELF and its matching UF2 image for this SDK's
+    /// platform. Everything besides the program itself - target,
+    /// configuration, runtime, linker script, boot metadata, and UF2 family -
+    /// is owned by the `Sdk`, so it cannot drift per firmware.
     pub fn addFirmware(sdk: *Sdk, opts: struct {
         name: []const u8,
         root_source_file: std.Build.LazyPath,
-    }) *std.Build.Step.Compile {
+    }) *Firmware {
         const b = sdk.b;
         const app = b.createModule(.{
             .root_source_file = opts.root_source_file,
@@ -106,7 +141,7 @@ pub const Sdk = struct {
             .error_tracing = false,
             .imports = &.{
                 .{ .name = "app", .module = app },
-                .{ .name = "zdk_config", .module = sdk.config_module },
+                .{ .name = "config", .module = sdk.config_module },
             },
         });
         if (sdk.boot2_image) |boot2_image| {
@@ -121,7 +156,20 @@ pub const Sdk = struct {
             .rp2040 => "src/rt/rp2040.ld",
             .rp2350 => "src/rt/rp2350.ld",
         }));
-        return exe;
+
+        const uf2_run = b.addRunArtifact(sdk.uf2_tool);
+        uf2_run.addArg(@tagName(uf2Family(sdk.config)));
+        uf2_run.addFileArg(exe.getEmittedBin());
+        const uf2_path = uf2_run.addOutputFileArg(b.fmt("{s}.uf2", .{opts.name}));
+
+        const firmware = b.allocator.create(Firmware) catch @panic("OOM");
+        firmware.* = .{
+            .b = b,
+            .name = b.dupe(opts.name),
+            .elf = exe,
+            .uf2 = uf2_path,
+        };
+        return firmware;
     }
 };
 
@@ -165,10 +213,6 @@ pub fn build(b: *std.Build) void {
 
         const examples_step = b.step("examples", "Build all examples");
 
-        // Host tool that repacks a firmware ELF as a drag-and-drop UF2. Built
-        // once here and re-run (with per-example args) inside the loop below.
-        const uf2_tool = buildTool(b, b.path("tools/uf2/main.zig"), "elf2uf2");
-
         var it = examples_dir.iterate();
         while (it.next(io) catch @panic("failed to iterate examples/")) |entry| {
             if (entry.kind != .directory) continue;
@@ -183,30 +227,16 @@ pub fn build(b: *std.Build) void {
 
             const name = b.dupe(entry.name);
             const main_path = b.fmt("examples/{s}/main.zig", .{name});
-            const suffix = targetSuffix(sdk.config);
-            const elf_name = b.fmt("{s}-{s}", .{ name, suffix });
-            const uf2_name = b.fmt("{s}-{s}.uf2", .{ name, suffix });
 
-            const fw = sdk.addFirmware(.{
-                .name = elf_name,
+            const firmware = sdk.addFirmware(.{
+                .name = b.fmt("{s}-{s}", .{ name, targetSuffix(sdk.config) }),
                 .root_source_file = b.path(main_path),
             });
 
-            const install = b.addInstallBinFile(fw.getEmittedBin(), elf_name);
-
-            const uf2_run = b.addRunArtifact(uf2_tool);
-            uf2_run.addArg(@tagName(uf2Family(sdk.config)));
-            uf2_run.addFileArg(fw.getEmittedBin());
-            const uf2_path = uf2_run.addOutputFileArg(uf2_name);
-            const install_uf2 = b.addInstallBinFile(uf2_path, uf2_name);
-
             // Per-example step: `zig build blinky`.
             const one = b.step(name, b.fmt("Build the '{s}' example", .{name}));
-            one.dependOn(&install.step);
-            one.dependOn(&install_uf2.step);
-
-            examples_step.dependOn(&install.step);
-            examples_step.dependOn(&install_uf2.step);
+            firmware.installTo(one);
+            examples_step.dependOn(one);
         }
 
         // The default `zig build` (the install step) builds every example.
@@ -227,6 +257,7 @@ pub fn build(b: *std.Build) void {
     addHostTests(b, test_step, optimize, .pico2, .arm);
     addToolTest(b, test_step, b.path("tools/uf2/uf2.zig"), optimize);
     addToolTest(b, test_step, b.path("tools/boot2_image/boot2_crc.zig"), optimize);
+    addBuildApiTest(b, test_step);
 }
 
 /// Common Sdk constructor behind both the standalone `build` and consumer
@@ -236,13 +267,19 @@ pub fn build(b: *std.Build) void {
 fn create(zdk_b: *std.Build, user_b: *std.Build, opts: Sdk.Options) *Sdk {
     const config = resolveConfig(opts.board, opts.arch);
     const target = user_b.resolveTargetQuery(firmwareQuery(config.core));
-    const config_module = configModule(user_b, config);
+    const generated_config = generatedConfigModule(user_b, config);
+    const config_module = user_b.createModule(.{
+        .root_source_file = zdk_b.path("src/config.zig"),
+        .target = target,
+        .optimize = opts.optimize,
+        .imports = &.{.{ .name = "zdk_config", .module = generated_config }},
+    });
 
     const module = user_b.createModule(.{
         .root_source_file = zdk_b.path("src/root.zig"),
         .target = target,
         .optimize = opts.optimize,
-        .imports = &.{.{ .name = "zdk_config", .module = config_module }},
+        .imports = &.{.{ .name = "config", .module = config_module }},
     });
 
     const sdk = user_b.allocator.create(Sdk) catch @panic("OOM");
@@ -255,6 +292,7 @@ fn create(zdk_b: *std.Build, user_b: *std.Build, opts: Sdk.Options) *Sdk {
         .module = module,
         .config_module = config_module,
         .boot2_image = if (config.chip == .rp2040) createBoot2ImageModule(user_b, zdk_b) else null,
+        .uf2_tool = buildTool(user_b, zdk_b.path("tools/uf2/main.zig"), "elf2uf2"),
     };
     return sdk;
 }
@@ -267,7 +305,7 @@ fn resolveConfig(board: Board, arch: ?Arch) Config {
     switch (board) {
         .pico => {
             if (arch == .riscv) {
-                std.log.err("pico (RP2040) has no RISC-V cores; -Darch applies to RP2350 boards", .{});
+                std.log.err("pico (RP2040) has no RISC-V cores; the arch option (-Darch) applies only to RP2350 boards", .{});
                 std.process.exit(1);
             }
             // An explicit `-Darch=arm` is accepted: it is true.
@@ -287,7 +325,7 @@ fn resolveConfig(board: Board, arch: ?Arch) Config {
 /// Emits one `zdk_config` options module carrying the derived axes. An `Sdk`
 /// shares a single instance between its library and runtime modules; host
 /// tests create their own per configuration.
-fn configModule(b: *std.Build, config: Config) *std.Build.Module {
+fn generatedConfigModule(b: *std.Build, config: Config) *std.Build.Module {
     const options = b.addOptions();
     options.addOption(Board, "board", config.board);
     options.addOption(Chip, "chip", config.chip);
@@ -298,11 +336,18 @@ fn configModule(b: *std.Build, config: Config) *std.Build.Module {
 /// Adds one host-target instantiation of the library test suite under the
 /// given board/arch configuration.
 fn addHostTests(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode, board: Board, arch: ?Arch) void {
+    const config = resolveConfig(board, arch);
+    const config_module = b.createModule(.{
+        .root_source_file = b.path("src/config.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "zdk_config", .module = generatedConfigModule(b, config) }},
+    });
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "zdk_config", .module = configModule(b, resolveConfig(board, arch)) }},
+        .imports = &.{.{ .name = "config", .module = config_module }},
     });
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = test_mod })).step);
 }
@@ -325,6 +370,26 @@ fn addToolTest(b: *std.Build, test_step: *std.Build.Step, root_source_file: std.
         .optimize = optimize,
     });
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = module })).step);
+}
+
+/// Runs a real downstream build that imports pico-zdk under a renamed
+/// dependency key and creates firmware for two different platforms in one
+/// build graph. This exercises `Sdk.init`, which standalone builds bypass.
+///
+/// The step must always re-run: a cached Run step keys only on its argv and
+/// declared file inputs, and none of this package's sources are inputs, so a
+/// cached green result would go stale the moment the build API breaks. The
+/// re-run stays fast because the fixture's cache and install prefix live at a
+/// stable path under this build's cache root, keeping it incremental.
+fn addBuildApiTest(b: *std.Build, test_step: *std.Build.Step) void {
+    const scratch = b.pathFromRoot(b.cache_root.join(b.allocator, &.{"build_api_test"}) catch @panic("OOM"));
+
+    const run = b.addSystemCommand(&.{ b.graph.zig_exe, "build" });
+    run.setCwd(b.path("tools/build_api_test/fixture"));
+    run.has_side_effects = true;
+    run.addArgs(&.{ "--cache-dir", b.pathJoin(&.{ scratch, "cache" }) });
+    run.addArgs(&.{ "--prefix", b.pathJoin(&.{ scratch, "install" }) });
+    test_step.dependOn(&run.step);
 }
 
 /// UF2 family ID for the configuration, so the BOOTSEL bootloader only

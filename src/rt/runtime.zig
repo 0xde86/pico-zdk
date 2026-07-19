@@ -4,7 +4,7 @@
 //! either `void` or `noreturn`. This module owns `_start`, boot metadata,
 //! vectors, and memory initialization.
 
-const config = @import("zdk_config");
+const config = @import("config");
 
 const startup = if (config.core == .hazard3)
     @import("start_hazard3.zig")

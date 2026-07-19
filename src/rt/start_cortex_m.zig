@@ -6,7 +6,7 @@
 //! https://developer.arm.com/documentation/ddi0553/latest/
 //! https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/crt0.S
 
-const config = @import("zdk_config");
+const config = @import("config");
 const common = @import("start_common.zig");
 
 /// Armv6-M (Cortex-M0+) reserves the fault and debug-monitor vectors that

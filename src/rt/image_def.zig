@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const config = @import("zdk_config");
+const config = @import("config");
 const picobin = @import("picobin.zig");
 const is_riscv = config.core == .hazard3;
 
