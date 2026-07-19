@@ -2,25 +2,137 @@ const std = @import("std");
 
 /// UF2 format constants and family IDs, shared with the `elf2uf2` host tool in
 /// tools/uf2/. Imported here only for the `FamilyId` enum used to tag builds;
-/// the conversion itself is done by running that tool (see `hostTool`).
+/// the conversion itself is done by running that tool (see `buildTool`).
 const uf2 = @import("tools/uf2/uf2.zig");
 
-/// Which board we are building firmware for.
+/// This file as a type, so `Sdk.init` can locate the pico-zdk dependency in a
+/// consumer's build graph regardless of the name it was given in build.zig.zon.
+const this_build_zig = @This();
+
+/// Input option to select board we are building firmware for. User-facing axis (`-Dboard`).
 pub const Board = enum { pico, pico2 };
 
-/// On the RP2350 (Pico 2) each core can boot as an ARM Cortex-M33 or a RISC-V
-/// Hazard3. This selects which one we target. Ignored for the RP2040 (Pico),
-/// which is always ARM Cortex-M0+.
+/// Input option to select core on the RP2350 (Pico 2): ARM Cortex-M33 or a RISC-V
+/// Hazard3. User-facing axis (`-Darch`); an explicit `riscv` on an RP2040 board fails
+/// at configuration time.
 pub const Arch = enum { arm, riscv };
 
-/// Standard Zig build entry point: wires up the library module, examples, and
-/// tests for the board/arch selected by the `-Dboard`/`-Darch` options.
+/// SoC mounted on the selected board. Derived axis carried by `zdk_config`:
+/// chip facts (register layout, boot metadata format) branch on this.
+pub const Chip = enum { rp2040, rp2350 };
+
+/// CPU core the firmware boots on. Derived axis carried by `zdk_config`:
+/// target resolution and the runtime's start path branch on this.
+pub const Core = enum { cortex_m0plus, cortex_m33, hazard3 };
+
+/// The derived configuration axes, resolved exactly once by `resolveConfig`.
+/// Downstream code branches on the axis it means - `board` for PCB wiring,
+/// `chip` for SoC facts, `core` for CPU facts - instead of re-deriving one
+/// axis from another.
+const Config = struct {
+    board: Board,
+    chip: Chip,
+    core: Core,
+};
+
+/// A configured firmware-building capability. Captures the validated
+/// board/arch selection, the resolved target, the library module, and the
+/// single `zdk_config` options module once, so one firmware cannot combine a
+/// library module and a target that disagree.
+pub const Sdk = struct {
+    /// Builder that owns the firmware modules and artifacts: the consumer's
+    /// builder, or this package's own when building standalone.
+    b: *std.Build,
+    /// This package's builder; owns the paths into src/ and tools/.
+    zdk: *std.Build,
+    config: Config,
+    optimize: std.builtin.OptimizeMode,
+    target: std.Build.ResolvedTarget,
+    /// The configured library module every firmware links against.
+    module: *std.Build.Module,
+    /// The `zdk_config` options module shared by the library and the runtime.
+    config_module: *std.Build.Module,
+    /// Checksummed RP2040 second-stage bootloader image; null on RP2350.
+    boot2_image: ?*std.Build.Module,
+
+    pub const Options = struct {
+        board: Board,
+        /// RP2350 core architecture. Unset defaults to ARM on RP2350 boards;
+        /// an explicit `.riscv` on an RP2040 board is a configure-time error.
+        arch: ?Arch = null,
+        optimize: std.builtin.OptimizeMode = .ReleaseSmall,
+    };
+
+    /// Entry point for a downstream build.zig:
+    ///
+    ///     const pico_zdk = @import("pico_zdk");
+    ///
+    ///     const sdk = pico_zdk.Sdk.init(b, .{ .board = .pico, ... });
+    ///     b.installArtifact(sdk.addFirmware(.{
+    ///         .name = "my_firmware",
+    ///         .root_source_file = b.path("src/main.zig"),
+    ///     }));
+    ///
+    /// Reuse one `Sdk` for several programs on one platform; create another
+    /// `Sdk` for another platform.
+    pub fn init(b: *std.Build, opts: Options) *Sdk {
+        const dep = b.dependencyFromBuildZig(this_build_zig, .{});
+        return create(dep.builder, b, opts);
+    }
+
+    /// Builds one firmware image for this SDK's platform. Everything besides
+    /// the program itself - target, configuration, runtime, linker script,
+    /// boot metadata - is owned by the `Sdk`, so it cannot drift per firmware.
+    pub fn addFirmware(sdk: *Sdk, opts: struct {
+        name: []const u8,
+        root_source_file: std.Build.LazyPath,
+    }) *std.Build.Step.Compile {
+        const b = sdk.b;
+        const app = b.createModule(.{
+            .root_source_file = opts.root_source_file,
+            .target = sdk.target,
+            .optimize = sdk.optimize,
+            .imports = &.{.{ .name = "pico_zdk", .module = sdk.module }},
+        });
+
+        const runtime = b.createModule(.{
+            .root_source_file = sdk.zdk.path("src/rt/runtime.zig"),
+            .target = sdk.target,
+            .optimize = sdk.optimize,
+            .single_threaded = true,
+            .stack_check = false,
+            .stack_protector = false,
+            .unwind_tables = .none,
+            .error_tracing = false,
+            .imports = &.{
+                .{ .name = "app", .module = app },
+                .{ .name = "zdk_config", .module = sdk.config_module },
+            },
+        });
+        if (sdk.boot2_image) |boot2_image| {
+            runtime.addImport("boot2_image", boot2_image);
+        }
+
+        const exe = b.addExecutable(.{ .name = opts.name, .root_module = runtime });
+        exe.entry = .{ .symbol_name = "_start" };
+        exe.link_gc_sections = true;
+        exe.bundle_ubsan_rt = false;
+        exe.setLinkerScript(sdk.zdk.path(switch (sdk.config.chip) {
+            .rp2040 => "src/rt/rp2040.ld",
+            .rp2350 => "src/rt/rp2350.ld",
+        }));
+        return exe;
+    }
+};
+
+/// Standard Zig build entry point: wires up the examples and tests for the
+/// board/arch selected by the `-Dboard`/`-Darch` options.
 pub fn build(b: *std.Build) void {
     // ----------------------------------------------------------------------
     // Build options
     // ----------------------------------------------------------------------
     const board = b.option(Board, "board", "Target board: pico (RP2040) or pico2 (RP2350) [default: pico]") orelse .pico;
-    const arch = b.option(Arch, "arch", "RP2350 core architecture: arm or riscv [default: arm]") orelse .arm;
+    const arch = b.option(Arch, "arch", "RP2350 core architecture: arm or riscv [default: arm on RP2350 boards]");
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
 
     // Zig's incremental ZCU cache can retain target-specific state when the
@@ -31,17 +143,10 @@ pub fn build(b: *std.Build) void {
         b.graph.incremental = false;
     }
 
-    // The firmware target is derived from the board/arch
-    const target = b.resolveTargetQuery(firmwareQuery(board, arch));
-
-    // ----------------------------------------------------------------------
-    // The main library module.
-    // ----------------------------------------------------------------------
-    const pico_zdk = b.addModule("pico_zdk", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    // The standalone Sdk instance behind the examples. It must not create a
+    // dependency on this package itself, so it calls the common constructor
+    // directly; consumers go through `Sdk.init`.
+    const sdk = create(b, b, .{ .board = board, .arch = arch, .optimize = optimize });
 
     // ----------------------------------------------------------------------
     // Examples - auto-discovered from examples/<name>/main.zig.
@@ -78,22 +183,19 @@ pub fn build(b: *std.Build) void {
 
             const name = b.dupe(entry.name);
             const main_path = b.fmt("examples/{s}/main.zig", .{name});
-            const suffix = targetSuffix(b, board, arch);
+            const suffix = targetSuffix(sdk.config);
             const elf_name = b.fmt("{s}-{s}", .{ name, suffix });
             const uf2_name = b.fmt("{s}-{s}.uf2", .{ name, suffix });
 
-            const fw = addFirmware(b, pico_zdk, .{
+            const fw = sdk.addFirmware(.{
                 .name = elf_name,
                 .root_source_file = b.path(main_path),
-                .board = board,
-                .arch = arch,
-                .optimize = optimize,
             });
 
             const install = b.addInstallBinFile(fw.getEmittedBin(), elf_name);
 
             const uf2_run = b.addRunArtifact(uf2_tool);
-            uf2_run.addArg(@tagName(uf2FamilyId(board, arch)));
+            uf2_run.addArg(@tagName(uf2Family(sdk.config)));
             uf2_run.addFileArg(fw.getEmittedBin());
             const uf2_path = uf2_run.addOutputFileArg(uf2_name);
             const install_uf2 = b.addInstallBinFile(uf2_path, uf2_name);
@@ -116,20 +218,93 @@ pub fn build(b: *std.Build) void {
     }
 
     // ----------------------------------------------------------------------
-    // Tests - host-runnable, hardware-independent logic.
+    // Tests - host-runnable, hardware-independent logic. The library suite is
+    // instantiated under BOTH chip configurations, so chip selection and every
+    // comptime branch are analyzed for both chips regardless of `-Dboard`.
     // ----------------------------------------------------------------------
+    const test_step = b.step("test", "Run host unit tests");
+    addHostTests(b, test_step, optimize, .pico, null);
+    addHostTests(b, test_step, optimize, .pico2, .arm);
+    addToolTest(b, test_step, b.path("tools/uf2/uf2.zig"), optimize);
+    addToolTest(b, test_step, b.path("tools/boot2_image/boot2_crc.zig"), optimize);
+}
+
+/// Common Sdk constructor behind both the standalone `build` and consumer
+/// `Sdk.init`. `zdk_b` is this package's own builder (source of src/ and
+/// tools/ paths); `user_b` is the builder that owns the resulting steps,
+/// modules, and artifacts. Standalone, the two are the same builder.
+fn create(zdk_b: *std.Build, user_b: *std.Build, opts: Sdk.Options) *Sdk {
+    const config = resolveConfig(opts.board, opts.arch);
+    const target = user_b.resolveTargetQuery(firmwareQuery(config.core));
+    const config_module = configModule(user_b, config);
+
+    const module = user_b.createModule(.{
+        .root_source_file = zdk_b.path("src/root.zig"),
+        .target = target,
+        .optimize = opts.optimize,
+        .imports = &.{.{ .name = "zdk_config", .module = config_module }},
+    });
+
+    const sdk = user_b.allocator.create(Sdk) catch @panic("OOM");
+    sdk.* = .{
+        .b = user_b,
+        .zdk = zdk_b,
+        .config = config,
+        .optimize = opts.optimize,
+        .target = target,
+        .module = module,
+        .config_module = config_module,
+        .boot2_image = if (config.chip == .rp2040) createBoot2ImageModule(user_b, zdk_b) else null,
+    };
+    return sdk;
+}
+
+/// Resolves the user-facing (board, arch) pair into the derived axes. The
+/// single owner of the board→chip→core relationship: no later code switches
+/// on independent board/arch values, and the one invalid combination fails
+/// here, at configure time.
+fn resolveConfig(board: Board, arch: ?Arch) Config {
+    switch (board) {
+        .pico => {
+            if (arch == .riscv) {
+                std.log.err("pico (RP2040) has no RISC-V cores; -Darch applies to RP2350 boards", .{});
+                std.process.exit(1);
+            }
+            // An explicit `-Darch=arm` is accepted: it is true.
+            return .{ .board = .pico, .chip = .rp2040, .core = .cortex_m0plus };
+        },
+        .pico2 => return .{
+            .board = .pico2,
+            .chip = .rp2350,
+            .core = switch (arch orelse .arm) {
+                .arm => .cortex_m33,
+                .riscv => .hazard3,
+            },
+        },
+    }
+}
+
+/// Emits one `zdk_config` options module carrying the derived axes. An `Sdk`
+/// shares a single instance between its library and runtime modules; host
+/// tests create their own per configuration.
+fn configModule(b: *std.Build, config: Config) *std.Build.Module {
+    const options = b.addOptions();
+    options.addOption(Board, "board", config.board);
+    options.addOption(Chip, "chip", config.chip);
+    options.addOption(Core, "core", config.core);
+    return options.createModule();
+}
+
+/// Adds one host-target instantiation of the library test suite under the
+/// given board/arch configuration.
+fn addHostTests(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode, board: Board, arch: ?Arch) void {
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
+        .imports = &.{.{ .name = "zdk_config", .module = configModule(b, resolveConfig(board, arch)) }},
     });
-    const mod_tests = b.addTest(.{ .root_module = test_mod });
-    const run_mod_tests = b.addRunArtifact(mod_tests);
-
-    const test_step = b.step("test", "Run host unit tests");
-    test_step.dependOn(&run_mod_tests.step);
-    addToolTest(b, test_step, b.path("tools/uf2/uf2.zig"), optimize);
-    addToolTest(b, test_step, b.path("tools/boot2_image/boot2_crc.zig"), optimize);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = test_mod })).step);
 }
 
 fn buildTool(b: *std.Build, root_source_file: std.Build.LazyPath, name: []const u8) *std.Build.Step.Compile {
@@ -152,116 +327,64 @@ fn addToolTest(b: *std.Build, test_step: *std.Build.Step, root_source_file: std.
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = module })).step);
 }
 
-/// UF2 family ID for the selected board/arch, so the BOOTSEL bootloader only
+/// UF2 family ID for the configuration, so the BOOTSEL bootloader only
 /// accepts an image built for the matching chip and core.
-fn uf2FamilyId(board: Board, arch: Arch) uf2.FamilyId {
-    return switch (board) {
-        .pico => .rp2040,
-        .pico2 => switch (arch) {
-            .arm => .rp2350_arm_s,
-            .riscv => .rp2350_riscv,
+fn uf2Family(config: Config) uf2.FamilyId {
+    return switch (config.core) {
+        .cortex_m0plus => .rp2040,
+        .cortex_m33 => .rp2350_arm_s,
+        .hazard3 => .rp2350_riscv,
+    };
+}
+
+/// Output-name suffix reflecting the user-facing axes.
+fn targetSuffix(config: Config) []const u8 {
+    return switch (config.board) {
+        .pico => "pico",
+        .pico2 => switch (config.core) {
+            .cortex_m33 => "pico2-arm",
+            .hazard3 => "pico2-riscv",
+            .cortex_m0plus => unreachable, // excluded by resolveConfig
         },
     };
 }
 
-fn targetSuffix(b: *std.Build, board: Board, arch: Arch) []const u8 {
-    return switch (board) {
-        .pico => "pico",
-        .pico2 => b.fmt("pico2-{s}", .{@tagName(arch)}),
-    };
-}
-
-fn firmwareQuery(board: Board, arch: Arch) std.Target.Query {
-    return switch (board) {
+fn firmwareQuery(core: Core) std.Target.Query {
+    return switch (core) {
         // RP2040: dual ARM Cortex-M0+, no FPU → soft-float EABI.
-        .pico => .{
+        .cortex_m0plus => .{
             .cpu_arch = .thumb,
             .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m0plus },
             .os_tag = .freestanding,
             .abi = .eabi,
         },
-        .pico2 => switch (arch) {
-            // RP2350 ARM: Cortex-M33 with single-precision FPU → hard-float EABI.
-            .arm => .{
-                .cpu_arch = .thumb,
-                .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m33 },
-                .os_tag = .freestanding,
-                .abi = .eabihf,
-            },
-            // RP2350 RISC-V: Hazard3
-            .riscv => .{
-                .cpu_arch = .riscv32,
-                .cpu_model = .{ .explicit = &std.Target.riscv.cpu.generic_rv32 },
-                .cpu_features_add = std.Target.riscv.featureSet(&.{ .a, .m, .c, .zba, .zbb, .zbs, .zcb, .zcmp, .zbkb, .zicsr, .zifencei }),
-                .os_tag = .freestanding,
-                .abi = .eabi,
-            },
+        // RP2350 ARM: Cortex-M33 with single-precision FPU → hard-float EABI.
+        .cortex_m33 => .{
+            .cpu_arch = .thumb,
+            .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m33 },
+            .os_tag = .freestanding,
+            .abi = .eabihf,
+        },
+        // RP2350 RISC-V: Hazard3
+        .hazard3 => .{
+            .cpu_arch = .riscv32,
+            .cpu_model = .{ .explicit = &std.Target.riscv.cpu.generic_rv32 },
+            .cpu_features_add = std.Target.riscv.featureSet(&.{ .a, .m, .c, .zba, .zbb, .zbs, .zcb, .zcmp, .zbkb, .zicsr, .zifencei }),
+            .os_tag = .freestanding,
+            .abi = .eabi,
         },
     };
 }
 
-/// Helper to build pico/pico2 firmware. Pass the `pico_zdk` module to link
-/// against: this package's own module internally, or `dep.module("pico_zdk")`
-/// from a downstream `build.zig`.
-pub fn addFirmware(b: *std.Build, pico_zdk: *std.Build.Module, opts: struct {
-    name: []const u8,
-    root_source_file: std.Build.LazyPath,
-    board: Board = .pico,
-    arch: Arch = .arm,
-    optimize: std.builtin.OptimizeMode = .ReleaseSmall,
-}) *std.Build.Step.Compile {
-    const target = b.resolveTargetQuery(firmwareQuery(opts.board, opts.arch));
-    const app = b.createModule(.{
-        .root_source_file = opts.root_source_file,
-        .target = target,
-        .optimize = opts.optimize,
-        .imports = &.{.{ .name = "pico_zdk", .module = pico_zdk }},
-    });
-
-    const rt_options = b.addOptions();
-    rt_options.addOption(Board, "board", opts.board);
-    rt_options.addOption(Arch, "arch", opts.arch);
-
-    const src_dir = pico_zdk.root_source_file.?.dirname();
-    const package_root = src_dir.dirname();
-    const runtime = b.createModule(.{
-        .root_source_file = src_dir.path(b, "rt/runtime.zig"),
-        .target = target,
-        .optimize = opts.optimize,
-        .single_threaded = true,
-        .stack_check = false,
-        .stack_protector = false,
-        .unwind_tables = .none,
-        .error_tracing = false,
-        .imports = &.{.{ .name = "app", .module = app }},
-    });
-    runtime.addOptions("rt_config", rt_options);
-
-    if (opts.board == .pico) {
-        runtime.addImport("boot2_image", createBoot2ImageModule(b, package_root));
-    }
-
-    const exe = b.addExecutable(.{ .name = opts.name, .root_module = runtime });
-    exe.entry = .{ .symbol_name = "_start" };
-    exe.link_gc_sections = true;
-    exe.bundle_ubsan_rt = false;
-    exe.setLinkerScript(src_dir.path(b, switch (opts.board) {
-        .pico => "rt/rp2040.ld",
-        .pico2 => "rt/rp2350.ld",
-    }));
-    return exe;
-}
-
 /// Links the RP2040 second stage in SRAM5, then generates the checksummed
 /// 256-byte flash image as a Zig module consumed by the firmware runtime.
-fn createBoot2ImageModule(b: *std.Build, package_root: std.Build.LazyPath) *std.Build.Module {
-    const target = b.resolveTargetQuery(firmwareQuery(.pico, .arm));
-    const rt_dir = package_root.path(b, "src/rt");
+fn createBoot2ImageModule(user_b: *std.Build, zdk_b: *std.Build) *std.Build.Module {
+    const target = user_b.resolveTargetQuery(firmwareQuery(.cortex_m0plus));
 
-    const boot2 = b.addExecutable(.{
+    const boot2 = user_b.addExecutable(.{
         .name = "pico_zdk_boot2",
-        .root_module = b.createModule(.{
-            .root_source_file = rt_dir.path(b, "boot2.zig"),
+        .root_module = user_b.createModule(.{
+            .root_source_file = zdk_b.path("src/rt/boot2.zig"),
             .target = target,
             .optimize = .ReleaseSmall,
             .single_threaded = true,
@@ -276,16 +399,16 @@ fn createBoot2ImageModule(b: *std.Build, package_root: std.Build.LazyPath) *std.
     boot2.link_gc_sections = true;
     boot2.bundle_compiler_rt = false;
     boot2.bundle_ubsan_rt = false;
-    boot2.setLinkerScript(rt_dir.path(b, "boot2_rp2040.ld"));
+    boot2.setLinkerScript(zdk_b.path("src/rt/boot2_rp2040.ld"));
 
     // Run the host tool to checksum the boot2 image and emit a Zig module.
     // The tool's args are: <input.elf> <output.zig>.
-    const boot2_tool = buildTool(b, package_root.path(b, "tools/boot2_image/main.zig"), "boot2_image");
-    const boot2_run = b.addRunArtifact(boot2_tool);
+    const boot2_tool = buildTool(user_b, zdk_b.path("tools/boot2_image/main.zig"), "boot2_image");
+    const boot2_run = user_b.addRunArtifact(boot2_tool);
     boot2_run.addFileArg(boot2.getEmittedBin());
     const generated_source = boot2_run.addOutputFileArg("boot2_image.zig");
 
-    return b.createModule(.{
+    return user_b.createModule(.{
         .root_source_file = generated_source,
         .target = target,
         .optimize = .ReleaseSmall,

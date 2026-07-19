@@ -18,7 +18,7 @@ const app = @import("app");
 /// the program on a bare-metal core, so a `void` main that returns drops into a
 /// low-power idle loop rather than executing off the end of the world.
 pub inline fn entry() noreturn {
-    memory_init();
+    memoryInit();
 
     const Return = @typeInfo(@TypeOf(app.main)).@"fn".return_type.?;
     if (Return == noreturn) {
@@ -41,7 +41,7 @@ extern var __bss_end: u8;
 
 /// Copies initialized `.data` from its flash load address into RAM and clears
 /// `.bss`. Call once, before any code that reads or writes static storage.
-inline fn memory_init() void {
+inline fn memoryInit() void {
     const data: [*]u8 = @ptrCast(&__data_start);
     const data_src: [*]const u8 = @ptrCast(&__data_load_start);
     const data_len = @intFromPtr(&__data_end) - @intFromPtr(&__data_start);

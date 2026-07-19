@@ -6,9 +6,12 @@
 //! https://developer.arm.com/documentation/ddi0553/latest/
 //! https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/crt0.S
 
-const config = @import("rt_config");
+const config = @import("zdk_config");
 const common = @import("start_common.zig");
-const is_rp2040 = config.board == .pico;
+
+/// Armv6-M (Cortex-M0+) reserves the fault and debug-monitor vectors that
+/// Armv8-M (Cortex-M33) defines
+const is_v6m = config.core == .cortex_m0plus;
 
 extern var __stack_top: u8;
 
@@ -20,8 +23,8 @@ const scb_vtor: *volatile u32 = @ptrFromInt(0xe000_ed08);
 const Vector = ?*const anyopaque;
 
 // External interrupt slots after the 16 architectural exceptions: RP2040 has 26,
-// RP2350 has 52 (datasheet interrupt tables).
-const irq_count = if (is_rp2040) 26 else 52;
+// RP2350 has 52 (datasheet interrupt tables)
+const irq_count = if (config.chip == .rp2040) 26 else 52;
 
 const VectorTable = extern struct {
     initial_stack_pointer: Vector,
@@ -53,15 +56,15 @@ pub export const vector_table linksection(".vectors") = VectorTable{
     .reset = address(_start),
     .nmi = address(defaultHandler),
     .hard_fault = address(defaultHandler),
-    .memory_management = if (is_rp2040) null else address(defaultHandler),
-    .bus_fault = if (is_rp2040) null else address(defaultHandler),
-    .usage_fault = if (is_rp2040) null else address(defaultHandler),
-    .secure_fault = if (is_rp2040) null else address(defaultHandler),
+    .memory_management = if (is_v6m) null else address(defaultHandler),
+    .bus_fault = if (is_v6m) null else address(defaultHandler),
+    .usage_fault = if (is_v6m) null else address(defaultHandler),
+    .secure_fault = if (is_v6m) null else address(defaultHandler),
     .reserved_8 = null,
     .reserved_9 = null,
     .reserved_10 = null,
     .supervisor_call = address(defaultHandler),
-    .debug_monitor = if (is_rp2040) null else address(defaultHandler),
+    .debug_monitor = if (is_v6m) null else address(defaultHandler),
     .reserved_13 = null,
     .pendable_service = address(defaultHandler),
     .system_tick = address(defaultHandler),

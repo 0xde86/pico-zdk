@@ -4,11 +4,9 @@
 //! either `void` or `noreturn`. This module owns `_start`, boot metadata,
 //! vectors, and memory initialization.
 
-const config = @import("rt_config");
-const is_rp2040 = config.board == .pico;
-const is_riscv = config.board == .pico2 and config.arch == .riscv;
+const config = @import("zdk_config");
 
-const startup = if (is_riscv)
+const startup = if (config.core == .hazard3)
     @import("start_hazard3.zig")
 else
     @import("start_cortex_m.zig");
@@ -16,7 +14,9 @@ else
 comptime {
     _ = startup._start;
 
-    if (is_rp2040) {
+    // Flash boot metadata is a chip fact: the RP2040 boots through a
+    // checksummed second-stage loader, the RP2350 through an IMAGE_DEF block.
+    if (config.chip == .rp2040) {
         _ = @import("boot2_image").image;
     } else {
         _ = @import("image_def.zig").image_def;

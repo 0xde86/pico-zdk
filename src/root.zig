@@ -12,6 +12,10 @@ test {
     // Force-analyze the host-testable runtime logic under `zig build test`.
     _ = @import("rt/picobin.zig");
 
+    // Configuration intake; analyzed under both test configurations (the
+    // build instantiates this suite once per chip).
+    _ = @import("config.zig");
+
     // Force-analyze every declaration re-exported from this root as the
     // curated public API lands here.
     @import("std").testing.refAllDecls(@This());
