@@ -69,7 +69,7 @@ const atomic_clear_alias_offset: usize = 0x3000;
 /// atomic toggle, set, clear and masked write operations.
 pub fn ApbReadWrite(comptime T: type) type {
     if (@bitSizeOf(T) != 32) {
-        @compileError("AtomicReadWrite(T) requires a 32-bit register value type, got " ++ @typeName(T));
+        @compileError("ApbReadWrite(T) requires a 32-bit register value type, got " ++ @typeName(T));
     }
 
     return extern struct {
@@ -110,14 +110,54 @@ pub fn ApbReadWrite(comptime T: type) type {
         /// can modify bits inside `mask`.
         pub fn writeMasked(self: *volatile Self, value: u32, mask: u32) void {
             const current: u32 = @bitCast(self.read());
-            const changed_bits = (current ^ value) & mask;
-            self.toggleBits(changed_bits);
+            self.toggleBits(maskedToggle(current, value, mask));
         }
 
         fn aliasPointer(self: *volatile Self, offset: usize) *volatile Self {
             return @ptrFromInt(@intFromPtr(self) + offset);
         }
     };
+}
+
+/// Returns the XOR operand that changes `current` to `value` on every bit
+/// selected by `mask` while leaving unselected bits untouched.
+fn maskedToggle(current: u32, value: u32, mask: u32) u32 {
+    return (current ^ value) & mask;
+}
+
+test "maskedToggle updates exactly the bits selected by the mask" {
+    const std = @import("std");
+
+    const cases = [_]struct { current: u32, value: u32, mask: u32 }{
+        // `value` bits outside the mask must not leak into the result.
+        .{ .current = 0x0000_0000, .value = 0xFFFF_FFFF, .mask = 0x0000_00FF },
+        .{ .current = 0xFFFF_FFFF, .value = 0x0000_0000, .mask = 0x0F0F_0F0F },
+        .{ .current = 0xA5A5_A5A5, .value = 0x5A5A_5A5A, .mask = 0xFFFF_0000 },
+        // Writing the current value back must be a no-op toggle.
+        .{ .current = 0xDEAD_BEEF, .value = 0xDEAD_BEEF, .mask = 0xFFFF_FFFF },
+        // An empty mask must never change anything.
+        .{ .current = 0x1234_5678, .value = 0x8765_4321, .mask = 0x0000_0000 },
+        // Single-field update (funcsel-style low bits).
+        .{ .current = 0x0000_001F, .value = 0x0000_0005, .mask = 0x0000_001F },
+    };
+
+    for (cases) |case| {
+        const result = case.current ^ maskedToggle(case.current, case.value, case.mask);
+        try std.testing.expectEqual(case.value & case.mask, result & case.mask);
+        try std.testing.expectEqual(case.current & ~case.mask, result & ~case.mask);
+    }
+}
+
+test "Wrapper method bodies compile for integer and packed-struct value types" {
+    const std = @import("std");
+
+    const Probe = packed struct(u32) { low: u16 = 0, high: u16 = 0 };
+    inline for (.{ u32, Probe }) |T| {
+        std.testing.refAllDecls(ReadOnly(T));
+        std.testing.refAllDecls(WriteOnly(T));
+        std.testing.refAllDecls(ReadWrite(T));
+        std.testing.refAllDecls(ApbReadWrite(T));
+    }
 }
 
 test "Registers occupy one register word" {
