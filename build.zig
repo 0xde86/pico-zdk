@@ -23,6 +23,14 @@ pub fn build(b: *std.Build) void {
     const arch = b.option(Arch, "arch", "RP2350 core architecture: arm or riscv [default: arm]") orelse .arm;
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
 
+    // Zig's incremental ZCU cache can retain target-specific state when the
+    // same build is re-run for another CPU architecture. Keep the regular
+    // content-addressed build cache, but default firmware builds to the stable
+    // whole-compilation cache mode. An explicit `-fincremental` still wins.
+    if (b.dep_prefix.len == 0 and b.graph.incremental == null) {
+        b.graph.incremental = false;
+    }
+
     // The firmware target is derived from the board/arch
     const target = b.resolveTargetQuery(firmwareQuery(board, arch));
 
@@ -70,18 +78,17 @@ pub fn build(b: *std.Build) void {
 
             const name = b.dupe(entry.name);
             const main_path = b.fmt("examples/{s}/main.zig", .{name});
+            const suffix = targetSuffix(b, board, arch);
+            const elf_name = b.fmt("{s}-{s}", .{ name, suffix });
+            const uf2_name = b.fmt("{s}-{s}.uf2", .{ name, suffix });
 
             const fw = addFirmware(b, pico_zdk, .{
-                .name = name,
+                .name = elf_name,
                 .root_source_file = b.path(main_path),
                 .board = board,
                 .arch = arch,
                 .optimize = optimize,
             });
-
-            const suffix = targetSuffix(b, board, arch);
-            const elf_name = b.fmt("{s}-{s}", .{ name, suffix });
-            const uf2_name = b.fmt("{s}-{s}.uf2", .{ name, suffix });
 
             const install = b.addInstallBinFile(fw.getEmittedBin(), elf_name);
 
