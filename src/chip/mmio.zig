@@ -121,7 +121,7 @@ pub fn ApbReadWrite(comptime T: type) type {
 
 /// Returns the XOR operand that changes `current` to `value` on every bit
 /// selected by `mask` while leaving unselected bits untouched.
-fn maskedToggle(current: u32, value: u32, mask: u32) u32 {
+inline fn maskedToggle(current: u32, value: u32, mask: u32) u32 {
     return (current ^ value) & mask;
 }
 

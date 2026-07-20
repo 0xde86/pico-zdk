@@ -257,6 +257,10 @@ pub fn build(b: *std.Build) void {
     addHostTests(b, test_step, optimize, .pico2, .arm);
     addToolTest(b, test_step, b.path("tools/uf2/uf2.zig"), optimize);
     addToolTest(b, test_step, b.path("tools/boot2_image/boot2_crc.zig"), optimize);
+    // picobin is std-only and is owned by the runtime module in firmware
+    // builds, so it gets a standalone test root instead of an import from
+    // the library test block (a file may belong to only one module).
+    addToolTest(b, test_step, b.path("src/rt/picobin.zig"), optimize);
     addBuildApiTest(b, test_step);
 }
 

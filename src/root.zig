@@ -8,10 +8,10 @@
 //!
 //! Consumers import this module; internal paths under `src/` stay private.
 
-test {
-    // Force-analyze the host-testable runtime logic under `zig build test`.
-    _ = @import("rt/picobin.zig");
+pub const hal = @import("./hal.zig");
+pub const chip = @import("./chip.zig");
 
+test {
     // Configuration intake; analyzed under both test configurations (the
     // build instantiates this suite once per chip).
     _ = @import("config");
