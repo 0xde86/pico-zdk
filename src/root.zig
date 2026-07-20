@@ -8,8 +8,11 @@
 //!
 //! Consumers import this module; internal paths under `src/` stay private.
 
-pub const hal = @import("./hal.zig");
 pub const chip = @import("./chip.zig");
+pub const board = @import("./board.zig");
+pub const hal = @import("./hal.zig");
+
+pub const resets = hal.resets;
 
 test {
     // Configuration intake; analyzed under both test configurations (the
