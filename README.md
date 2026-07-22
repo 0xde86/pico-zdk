@@ -27,6 +27,11 @@ build.zig            Build graph: board/arch target selection, examples, tests
 build.zig.zon        Package manifest (name: pico_zdk, min Zig 0.16.0)
 src/
   root.zig           Public API surface - the single library module's root
+  board.zig          Selected-board facade for PCB-level pin assignments
+  board/             Board-specific pin definitions
+  chip.zig           Selected-chip facade and shared register contract
+  chip/              RP2040/RP2350 register definitions and MMIO primitives
+  hal/               Portable peripheral operations
   rt/                Private bare-metal runtime: startup, vectors, boot2 /
                      IMAGE_DEF, memory init, and per-board linker scripts
 tools/
@@ -43,6 +48,7 @@ As the SDK grows, `src/` will be organized roughly mirroring the hardware:
 ```
 src/
   root.zig           Re-exports the public API
+  board/             Board definitions: pins and other PCB-level facts
   chip/              Chip-specific code (rp2040 / rp2350) and definitions
   hal/               Hardware abstraction: gpio, clocks, uart, spi, i2c, pwm, adc, dma, pio
   rt/                Runtime: startup, vector table, linker scripts, bootrom interface

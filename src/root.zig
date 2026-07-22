@@ -8,11 +8,14 @@
 //!
 //! Consumers import this module; internal paths under `src/` stay private.
 
+/// Raw register definitions and chip-level capabilities for the selected SoC.
 pub const chip = @import("./chip.zig");
-pub const board = @import("./board.zig");
-pub const hal = @import("./hal.zig");
 
-pub const resets = hal.resets;
+/// Board-level pin assignments for the configured target board.
+pub const board = @import("./board.zig");
+
+/// Interfaces for controlling hardware subsystem resets.
+pub const resets = @import("hal/resets.zig");
 
 test {
     // Configuration intake; analyzed under both test configurations (the

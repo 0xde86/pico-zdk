@@ -1,4 +1,8 @@
-//! subsystem-reset controller
+//! Portable subsystem-reset controller operations.
+//!
+//! Hardware behavior follows RP2040 datasheet §2.14, "Subsystem Resets", and
+//! RP2350 datasheet §7.5, "Subsystem resets". Chip-specific register layouts
+//! and bit positions remain in the selected chip package.
 
 const chip = @import("../chip.zig");
 
@@ -9,10 +13,11 @@ const chip = @import("../chip.zig");
 /// released. Otherwise RESET_DONE may never assert and this function will
 /// wait forever.
 pub fn releaseAndWait(comptime blocks: []const chip.resets.Block) void {
-    var mask: u32 = 0;
-    for (blocks) |b| {
-        mask |= chip.mask(b);
-    }
+    const mask = comptime blk: {
+        var m: u32 = 0;
+        for (blocks) |b| m |= chip.mask(b);
+        break :blk m;
+    };
 
     chip.resets.registers.reset.clearBits(mask);
 

@@ -1,5 +1,7 @@
 //! Access-typed memory-mapped I/O register primitives shared by RP2040 and RP2350.
 
+const std = @import("std");
+
 /// A 32-bit memory-mapped read-only register.
 pub fn ReadOnly(comptime T: type) type {
     if (@bitSizeOf(T) != 32) {
@@ -12,7 +14,7 @@ pub fn ReadOnly(comptime T: type) type {
         const Self = @This();
 
         /// Returns the register value with one volatile 32-bit load.
-        pub fn read(self: *const volatile Self) T {
+        pub inline fn read(self: *const volatile Self) T {
             return @bitCast(self._value);
         }
     };
@@ -30,7 +32,7 @@ pub fn WriteOnly(comptime T: type) type {
         const Self = @This();
 
         /// Replaces the register value with one volatile 32-bit store.
-        pub fn write(self: *volatile Self, value: T) void {
+        pub inline fn write(self: *volatile Self, value: T) void {
             self._value = @bitCast(value);
         }
     };
@@ -48,14 +50,41 @@ pub fn ReadWrite(comptime T: type) type {
         const Self = @This();
 
         /// Returns the register value with one volatile 32-bit load.
-        pub fn read(self: *const volatile Self) T {
+        pub inline fn read(self: *const volatile Self) T {
             return @bitCast(self._value);
         }
 
         /// Replaces the register value with one volatile 32-bit store.
-        pub fn write(self: *volatile Self, value: T) void {
+        pub inline fn write(self: *volatile Self, value: T) void {
             self._value = @bitCast(value);
         }
+    };
+}
+
+/// Returns the register-word mask selecting `field` of register value type `T`.
+///
+/// Operand builder for `ApbReadWrite.writeMasked`
+pub inline fn fieldMask(comptime T: type, comptime field: std.meta.FieldEnum(T)) u32 {
+    if (@bitSizeOf(T) != 32) {
+        @compileError("fieldMask(T, ...) requires a 32-bit register value type, got " ++ @typeName(T));
+    }
+
+    const name = @tagName(field);
+    if (name[0] == '_') {
+        @compileError("fieldMask: '" ++ name ++ "' is reserved padding of " ++ @typeName(T) ++ ", not a writable field");
+    }
+
+    const bits = @bitSizeOf(@FieldType(T, name));
+    const ones: u32 = (1 << bits) - 1;
+    return ones << @bitOffsetOf(T, name);
+}
+
+/// Returns the register-word mask selecting every field in `fields`
+pub inline fn fieldsMask(comptime T: type, comptime fields: []const std.meta.FieldEnum(T)) u32 {
+    return comptime blk: {
+        var mask: u32 = 0;
+        for (fields) |field| mask |= fieldMask(T, field);
+        break :blk mask;
     };
 }
 
@@ -78,27 +107,27 @@ pub fn ApbReadWrite(comptime T: type) type {
         const Self = @This();
 
         /// Returns the register value with one volatile 32-bit load.
-        pub fn read(self: *const volatile Self) T {
+        pub inline fn read(self: *const volatile Self) T {
             return @bitCast(self._value);
         }
 
         /// Replaces the register value with one volatile 32-bit store.
-        pub fn write(self: *volatile Self, value: T) void {
+        pub inline fn write(self: *volatile Self, value: T) void {
             self._value = @bitCast(value);
         }
 
         /// Atomically sets every register bit selected by `mask`.
-        pub fn setBits(self: *volatile Self, mask: u32) void {
+        pub inline fn setBits(self: *volatile Self, mask: u32) void {
             self.aliasPointer(atomic_set_alias_offset)._value = mask;
         }
 
         /// Atomically clears every register bit selected by `mask`.
-        pub fn clearBits(self: *volatile Self, mask: u32) void {
+        pub inline fn clearBits(self: *volatile Self, mask: u32) void {
             self.aliasPointer(atomic_clear_alias_offset)._value = mask;
         }
 
         /// Atomically toggles every register bit selected by `mask`.
-        pub fn toggleBits(self: *volatile Self, mask: u32) void {
+        pub inline fn toggleBits(self: *volatile Self, mask: u32) void {
             self.aliasPointer(atomic_xor_alias_offset)._value = mask;
         }
 
@@ -108,12 +137,12 @@ pub fn ApbReadWrite(comptime T: type) type {
         /// outside `mask`. The preceding read and the alias write are not one
         /// atomic operation; callers must synchronize concurrent writers that
         /// can modify bits inside `mask`.
-        pub fn writeMasked(self: *volatile Self, value: u32, mask: u32) void {
+        pub inline fn writeMasked(self: *volatile Self, value: u32, mask: u32) void {
             const current: u32 = @bitCast(self.read());
             self.toggleBits(maskedToggle(current, value, mask));
         }
 
-        fn aliasPointer(self: *volatile Self, offset: usize) *volatile Self {
+        inline fn aliasPointer(self: *volatile Self, offset: usize) *volatile Self {
             return @ptrFromInt(@intFromPtr(self) + offset);
         }
     };
@@ -125,9 +154,36 @@ inline fn maskedToggle(current: u32, value: u32, mask: u32) u32 {
     return (current ^ value) & mask;
 }
 
-test "maskedToggle updates exactly the bits selected by the mask" {
-    const std = @import("std");
+comptime {
+    // Stand-in for a real register
+    const Ctrl = packed struct(u32) {
+        funcsel: u5 = 0,
+        _reserved0: u3 = 0,
+        out_over: u2 = 0,
+        _reserved1: u22 = 0,
+    };
 
+    std.debug.assert(fieldMask(Ctrl, .funcsel) == 0x0000_001f);
+    std.debug.assert(fieldMask(Ctrl, .out_over) == 0x0000_0300);
+
+    // A field spanning the whole register must not overflow the shift that
+    // builds its run of ones.
+    const Whole = packed struct(u32) { all: u32 = 0 };
+    std.debug.assert(fieldMask(Whole, .all) == 0xffff_ffff);
+
+    // Union, not sum: an empty list selects nothing, and a repeated field
+    // cannot widen the mask.
+    std.debug.assert(fieldsMask(Ctrl, &.{ .funcsel, .out_over }) == 0x0000_031f);
+    std.debug.assert(fieldsMask(Ctrl, &.{}) == 0x0000_0000);
+    std.debug.assert(fieldsMask(Ctrl, &.{ .funcsel, .funcsel }) == fieldMask(Ctrl, .funcsel));
+
+    const current: u32 = 0x0000_031f;
+    const value: u32 = @bitCast(Ctrl{ .funcsel = 5 });
+    const updated = current ^ maskedToggle(current, value, fieldsMask(Ctrl, &.{.funcsel}));
+    std.debug.assert(updated == 0x0000_0305);
+}
+
+test "maskedToggle updates exactly the bits selected by the mask" {
     const cases = [_]struct { current: u32, value: u32, mask: u32 }{
         // `value` bits outside the mask must not leak into the result.
         .{ .current = 0x0000_0000, .value = 0xFFFF_FFFF, .mask = 0x0000_00FF },
@@ -149,8 +205,6 @@ test "maskedToggle updates exactly the bits selected by the mask" {
 }
 
 test "Wrapper method bodies compile for integer and packed-struct value types" {
-    const std = @import("std");
-
     const Probe = packed struct(u32) { low: u16 = 0, high: u16 = 0 };
     inline for (.{ u32, Probe }) |T| {
         std.testing.refAllDecls(ReadOnly(T));
@@ -161,8 +215,6 @@ test "Wrapper method bodies compile for integer and packed-struct value types" {
 }
 
 test "Registers occupy one register word" {
-    const std = @import("std");
-
     try std.testing.expectEqual(@as(usize, 4), @sizeOf(ReadOnly(u32)));
     try std.testing.expectEqual(@as(usize, 4), @alignOf(ReadOnly(u32)));
 

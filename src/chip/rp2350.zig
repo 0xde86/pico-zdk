@@ -4,6 +4,9 @@
 /// Subsystem-reset controller (RESETS).
 pub const resets = @import("rp2350/resets.zig");
 
+/// User IO bank (IO_BANK0)
+pub const io_bank0 = @import("rp2350/io_bank0.zig");
+
 /// Usable GPIO count for this chip. Source: RP2350 `platform_defs.h`
 /// `NUM_BANK0_GPIOS`. 30 on the A-package (QFN-60, used by Pico 2); the
 /// B-package (QFN-80) exposes 48 — a B-package board would make this
