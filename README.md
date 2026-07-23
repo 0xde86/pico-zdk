@@ -145,7 +145,8 @@ I want to to try to implement it the way so it feels like the Zig standard libra
   - [x] Add linker layouts, runtime startup code, and boot blocks
   - [x] Ship the UF2 converter and bootable `led_on` example
 - [ ] Milestone 2 - Chip registers, resets, and GPIO
-  - [ ] Add typed RP2040/RP2350 registers and reset control
+  - [x] Add typed RP2040/RP2350 registers and reset control
+  - [ ] Implement SIO
   - [ ] Ship the GPIO HAL and real `blinky` example
 - [ ] Milestone 3 - Clocks and PLLs
   - [ ] Configure the external crystal oscillator, phase-locked loops, clock generators, and ticks
