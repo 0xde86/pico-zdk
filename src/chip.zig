@@ -18,6 +18,9 @@ pub const io_bank0 = selected.io_bank0;
 /// User IO pad register package of the selected chip.
 pub const pads_bank0 = selected.pads_bank0;
 
+/// Single-cycle I/O register package of the selected chip.
+pub const sio = selected.sio;
+
 /// Usable GPIO count of the selected chip/package.
 pub const gpio_count = selected.gpio_count;
 
@@ -33,6 +36,7 @@ comptime {
     _ = selected.resets;
     _ = selected.io_bank0;
     _ = selected.pads_bank0;
+    _ = selected.sio;
     _ = selected.gpio_count;
 
     std.debug.assert(@bitSizeOf(resets.Reset) == 32);
@@ -80,4 +84,13 @@ comptime {
         std.debug.assert(@hasField(pads_bank0.Drive, name));
     }
     std.debug.assert(@intFromEnum(pads_bank0.Drive.ma_4) == 1);
+
+    // SIO GPIO command registers the HAL drives on both chips.
+    for ([_][]const u8{
+        "cpuid",        "gpio_in",      "gpio_out", "gpio_out_set",
+        "gpio_out_clr", "gpio_out_xor", "gpio_oe",  "gpio_oe_set",
+        "gpio_oe_clr",  "gpio_oe_xor",
+    }) |name| {
+        std.debug.assert(@hasField(sio.Registers, name));
+    }
 }

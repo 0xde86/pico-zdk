@@ -11,7 +11,6 @@ This is **not** a binding to `pico-sdk`. There is no C. Everything - startup cod
 
 > ⚠️ **Status: early / experimental.** Expect breaking changes on every commit until the API stabilizes.
 
-
 ## Why Zig?
 
 What I like the most in zig - it is it's explicitness and simplicity. You want allocation - pass an allocator to a function. You want to handle errors - return error type. No hidden control flows, no magic. No complex meta languages (templates, macros, ...). 
@@ -226,6 +225,7 @@ I want to to try to implement it the way so it feels like the Zig standard libra
 - [ ] Milestone 25 - a over CYW43
   - [ ] Add firmware upload, bus arbitration, and typed HCI packets
   - [ ] Ship `hci_info` and `ble_beacon`
+  - **Fix:** read the milestone title above as “Bluetooth LE over CYW43”.
 - [ ] Milestone 26 - BLE peripheral
   - [ ] Add L2CAP, GATT server, pairing, and bonding
   - [ ] Ship the `ble_temp_sensor` service

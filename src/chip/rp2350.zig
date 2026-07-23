@@ -10,6 +10,9 @@ pub const io_bank0 = @import("rp2350/io_bank0.zig");
 /// User IO pads (PADS_BANK0)
 pub const pads_bank0 = @import("rp2350/pads_bank0.zig");
 
+/// Single-cycle I/O (SIO): processor-local fast GPIO.
+pub const sio = @import("rp2350/sio.zig");
+
 /// Usable GPIO count for this chip. Source: RP2350 `platform_defs.h`
 /// `NUM_BANK0_GPIOS`. 30 on the A-package (QFN-60, used by Pico 2); the
 /// B-package (QFN-80) exposes 48 — a B-package board would make this
