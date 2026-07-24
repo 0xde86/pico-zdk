@@ -39,7 +39,7 @@ tools/
 examples/
   minimal/main.zig   Smallest firmware that builds for the target
   led_on/main.zig    Turns the on-board LED on with raw register writes (no HAL)
-  blinky/main.zig    LED blink example (placeholder for now)
+  blinky/main.zig    LED blink example
 ```
 
 As the SDK grows, `src/` will be organized roughly mirroring the hardware:
@@ -143,10 +143,10 @@ I want to to try to implement it the way so it feels like the Zig standard libra
 - [x] Milestone 1 - Bootable images and UF2 tooling
   - [x] Add linker layouts, runtime startup code, and boot blocks
   - [x] Ship the UF2 converter and bootable `led_on` example
-- [ ] Milestone 2 - Chip registers, resets, and GPIO
+- [x] Milestone 2 - Chip registers, resets, and GPIO
   - [x] Add typed RP2040/RP2350 registers and reset control
-  - [ ] Implement SIO
-  - [ ] Ship the GPIO HAL and real `blinky` example
+  - [x] Implement SIO
+  - [x] Ship the GPIO HAL and real `blinky` example
 - [ ] Milestone 3 - Clocks and PLLs
   - [ ] Configure the external crystal oscillator, phase-locked loops, clock generators, and ticks
   - [ ] Ship the `clock_gpout` example
