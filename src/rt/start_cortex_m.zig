@@ -4,7 +4,7 @@
 //! RP2040/RP2350 startup implementation:
 //! https://developer.arm.com/documentation/ddi0419/latest/
 //! https://developer.arm.com/documentation/ddi0553/latest/
-//! https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/crt0.S
+//! https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/crt0.S
 
 const config = @import("config");
 const common = @import("start_common.zig");

@@ -21,17 +21,26 @@ pub const Arch = enum { arm, riscv };
 /// chip facts (register layout, boot metadata format) branch on this.
 pub const Chip = enum { rp2040, rp2350 };
 
+/// Physical chip package mounted on the selected board. Derived from `Board`.
+pub const Package = enum {
+    /// RP2040 QFN-56 package used by Raspberry Pi Pico; exposes GPIO 0..29.
+    rp2040_qfn56,
+    /// RP2350A QFN-60 package used by Raspberry Pi Pico 2; exposes GPIO 0..29.
+    rp2350a_qfn60,
+};
+
 /// CPU core the firmware boots on. Derived axis carried by `zdk_config`:
 /// target resolution and the runtime's start path branch on this.
 pub const Core = enum { cortex_m0plus, cortex_m33, hazard3 };
 
 /// The derived configuration axes, resolved exactly once by `resolveConfig`.
 /// Downstream code branches on the axis it means - `board` for PCB wiring,
-/// `chip` for SoC facts, `core` for CPU facts - instead of re-deriving one
-/// axis from another.
+/// `chip` for register layouts, `package` for bonded-pin capabilities, and
+/// `core` for CPU facts.
 const Config = struct {
     board: Board,
     chip: Chip,
+    package: Package,
     core: Core,
 };
 
@@ -75,8 +84,11 @@ pub const Sdk = struct {
     b: *std.Build,
     /// This package's builder; owns the paths into src/ and tools/.
     zdk: *std.Build,
+    /// Validated board, chip, package, and core configuration.
     config: Config,
+    /// Optimization mode applied to firmware and its pico-zdk modules.
     optimize: std.builtin.OptimizeMode,
+    /// Resolved freestanding target selected by `config.core`.
     target: std.Build.ResolvedTarget,
     /// The configured library module every firmware links against.
     module: *std.Build.Module,
@@ -88,11 +100,14 @@ pub const Sdk = struct {
     /// Host tool that converts linked firmware ELFs to UF2 images.
     uf2_tool: *std.Build.Step.Compile,
 
+    /// Configuration accepted by `Sdk.init`.
     pub const Options = struct {
+        /// Board whose wiring, chip package, and default core are selected.
         board: Board,
         /// RP2350 core architecture. Unset defaults to ARM on RP2350 boards;
         /// an explicit `.riscv` on an RP2040 board is a configure-time error.
         arch: ?Arch = null,
+        /// Optimization mode used for firmware and library compilation.
         optimize: std.builtin.OptimizeMode = .ReleaseSmall,
     };
 
@@ -301,10 +316,10 @@ fn create(zdk_b: *std.Build, user_b: *std.Build, opts: Sdk.Options) *Sdk {
     return sdk;
 }
 
-/// Resolves the user-facing (board, arch) pair into the derived axes. The
-/// single owner of the board→chip→core relationship: no later code switches
-/// on independent board/arch values, and the one invalid combination fails
-/// here, at configure time.
+/// Resolves the user-facing (board, arch) pair into board, chip, package, and
+/// core. This is the single owner of those relationships: no later code
+/// switches on independent board/arch values, and the one invalid combination
+/// fails here at configure time.
 fn resolveConfig(board: Board, arch: ?Arch) Config {
     switch (board) {
         .pico => {
@@ -313,11 +328,12 @@ fn resolveConfig(board: Board, arch: ?Arch) Config {
                 std.process.exit(1);
             }
             // An explicit `-Darch=arm` is accepted: it is true.
-            return .{ .board = .pico, .chip = .rp2040, .core = .cortex_m0plus };
+            return .{ .board = .pico, .chip = .rp2040, .package = .rp2040_qfn56, .core = .cortex_m0plus };
         },
         .pico2 => return .{
             .board = .pico2,
             .chip = .rp2350,
+            .package = .rp2350a_qfn60,
             .core = switch (arch orelse .arm) {
                 .arm => .cortex_m33,
                 .riscv => .hazard3,
@@ -333,6 +349,7 @@ fn generatedConfigModule(b: *std.Build, config: Config) *std.Build.Module {
     const options = b.addOptions();
     options.addOption(Board, "board", config.board);
     options.addOption(Chip, "chip", config.chip);
+    options.addOption(Package, "package", config.package);
     options.addOption(Core, "core", config.core);
     return options.createModule();
 }

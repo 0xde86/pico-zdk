@@ -7,7 +7,7 @@
 //! Sources: RP2040 datasheet sections 2.8.1 and 4.10, and Raspberry Pi's
 //! `boot2_generic_03h.S` reference implementation:
 //! https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf
-//! https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/boot_stage2/boot2_generic_03h.S
+//! https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot2_generic_03h.S
 
 /// Configures serial `03h` XIP and enters the vector table at `0x1000_0100`.
 ///

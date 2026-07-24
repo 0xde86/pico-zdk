@@ -5,7 +5,7 @@
 //! https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf
 //! https://github.com/riscv/riscv-isa-manual/releases
 //! https://github.com/riscv-non-isa/riscv-elf-psabi-doc
-//! https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/crt0_riscv.S
+//! https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/crt0_riscv.S
 
 const common = @import("start_common.zig");
 

@@ -12,10 +12,10 @@
  * - RP2040 datasheet, sections 2.2.2, 2.6.2, and 2.8.1:
  *   https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf
  * - Raspberry Pi's boot2 linker layout (same address and 252-byte limit):
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/boot_stage2/boot_stage2.ld
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot_stage2.ld
  * - Raspberry Pi's generic 03h boot2 (position-independent, stack-only,
  *   padded to 256 bytes with a four-byte checksum):
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/boot_stage2/boot2_generic_03h.S
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot2_generic_03h.S
  */
 
 ENTRY(_start)

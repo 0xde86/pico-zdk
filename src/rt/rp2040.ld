@@ -9,12 +9,12 @@
  *   2.8.1 (processor-controlled boot):
  *   https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf
  * - Raspberry Pi's canonical RP2040 flash linker layout:
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/rp2040/memmap_default.ld
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/rp2040/memmap_default.ld
  * - Raspberry Pi Pico board definition (2 MiB installed flash):
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/boards/include/boards/pico.h
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/boards/include/boards/pico.h
  * - Raspberry Pi boot2 layout and generic 03h implementation:
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/boot_stage2/boot_stage2.ld
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/boot_stage2/boot2_generic_03h.S
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot_stage2.ld
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot2_generic_03h.S
  */
 
 ENTRY(_start)

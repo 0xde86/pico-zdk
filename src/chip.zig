@@ -22,7 +22,11 @@ pub const pads_bank0 = selected.pads_bank0;
 pub const sio = selected.sio;
 
 /// Usable GPIO count of the selected chip/package.
-pub const gpio_count = selected.gpio_count;
+pub const gpio_count = switch (config.package) {
+    .rp2040_qfn56,
+    .rp2350a_qfn60,
+    => 30,
+};
 
 /// Returns the 32-bit RESETS register mask with `block`'s bit set.
 pub inline fn mask(block: resets.Block) u32 {
@@ -37,7 +41,6 @@ comptime {
     _ = selected.io_bank0;
     _ = selected.pads_bank0;
     _ = selected.sio;
-    _ = selected.gpio_count;
 
     std.debug.assert(@bitSizeOf(resets.Reset) == 32);
     std.debug.assert(@offsetOf(resets.Registers, "reset") == 0x00);

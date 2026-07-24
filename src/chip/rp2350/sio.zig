@@ -64,8 +64,8 @@ pub const Registers = extern struct {
     gpio_hi_oe_xor: mmio.WriteOnly(u32),
 };
 
-/// The SIO peripheral at its RP2350 base address. SIO is processor-local, so a
-/// read reflects the core that issued it.
+/// The SIO peripheral at its RP2350 base address. GPIO state is shared by both
+/// cores; only core-sensitive registers such as CPUID reflect the issuing core.
 pub const registers: *volatile Registers =
     @ptrFromInt(address_map.sio_base);
 

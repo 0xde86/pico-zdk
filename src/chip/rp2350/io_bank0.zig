@@ -127,8 +127,7 @@ pub const GpioCtrl = packed struct(u32) {
 };
 
 /// One GPIO's register pair: STATUS (read-only) then CTRL (8 bytes), as laid
-/// out per pin in the IO_BANK0 array. CTRL is APB read-write so the HAL can
-/// masked-update FUNCSEL while preserving the overrides.
+/// out per pin in the IO_BANK0 array. CTRL is APB read-write.
 pub const Gpio = extern struct {
     status: mmio.ReadOnly(GpioStatus),
     ctrl: mmio.ApbReadWrite(GpioCtrl),
@@ -139,7 +138,7 @@ pub const Gpio = extern struct {
 /// only bonds the first 30. The usable pin count is the facade's `gpio_count`.
 pub const num_gpios = 48;
 
-/// IO_BANK0 register block
+/// IO_BANK0 register block.
 pub const Registers = extern struct {
     io: [num_gpios]Gpio,
 };

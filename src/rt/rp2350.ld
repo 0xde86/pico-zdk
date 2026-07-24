@@ -10,11 +10,11 @@
  *   (block loops), 5.1.12 (flash image boot), and 5.2 (boot sequence):
  *   https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf
  * - Raspberry Pi's canonical RP2350 flash linker layout:
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/rp2350/memmap_default.ld
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/rp2350/memmap_default.ld
  * - Raspberry Pi's canonical IMAGE_DEF/block-loop emission for Arm/RISC-V:
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_crt0/embedded_start_block.inc.S
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/embedded_start_block.inc.S
  * - Raspberry Pi Pico 2 board definition (4 MiB installed flash):
- *   https://github.com/raspberrypi/pico-sdk/blob/master/src/boards/include/boards/pico2.h
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/boards/include/boards/pico2.h
  */
 
 ENTRY(_start)

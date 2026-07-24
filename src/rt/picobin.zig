@@ -7,7 +7,7 @@
 //!
 //! Source: RP2350 datasheet section 5.1.5 and Raspberry Pi's public constants:
 //! https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf
-//! https://github.com/raspberrypi/pico-sdk/blob/master/src/common/boot_picobin_headers/include/boot/picobin.h
+//! https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/common/boot_picobin_headers/include/boot/picobin.h
 
 const std = @import("std");
 

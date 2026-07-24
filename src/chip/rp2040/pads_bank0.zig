@@ -32,8 +32,9 @@ pub const VoltageSelect = packed struct(u32) {
 };
 
 /// GPIOn: the electrical controls for one pad. Every field defaults to its
-/// reset value, so `Pad{}` is the power-on word and a partial initializer
-/// changes only what it names.
+/// reset value, so `Pad{}` is the complete power-on word. A partial initializer
+/// still constructs a complete word using these defaults; callers that must
+/// preserve live fields use an APB masked update.
 pub const Pad = packed struct(u32) {
     /// `SLEWFAST`: false selects limited edge rates, true fast edges.
     slew_fast: bool = false,

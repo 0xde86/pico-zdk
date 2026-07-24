@@ -17,6 +17,12 @@ pub const board = @import("./board.zig");
 /// Interfaces for controlling hardware subsystem resets.
 pub const resets = @import("hal/resets.zig");
 
+/// Physical GPIO pad and function-mux configuration.
+pub const gpio = @import("hal/gpio.zig");
+
+/// Software-controlled digital I/O through the SIO hardware block.
+pub const sio = @import("hal/sio.zig");
+
 test {
     // Configuration intake; analyzed under both test configurations (the
     // build instantiates this suite once per chip).
