@@ -14,6 +14,10 @@ else
 comptime {
     _ = startup._start;
 
+    // The ELF entry is distinct from the reset handler. Debuggers enter there,
+    // and the early core-1 guards also use it to return to the boot ROM.
+    _ = startup._entry_point;
+
     // Flash boot metadata is a chip fact: the RP2040 boots through a
     // checksummed second-stage loader, the RP2350 through an IMAGE_DEF block.
     if (config.chip == .rp2040) {

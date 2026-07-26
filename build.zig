@@ -157,6 +157,7 @@ pub const Sdk = struct {
             .imports = &.{
                 .{ .name = "app", .module = app },
                 .{ .name = "config", .module = sdk.config_module },
+                .{ .name = "pico_zdk", .module = sdk.module },
             },
         });
         if (sdk.boot2_image) |boot2_image| {
@@ -164,7 +165,10 @@ pub const Sdk = struct {
         }
 
         const exe = b.addExecutable(.{ .name = opts.name, .root_module = runtime });
-        exe.entry = .{ .symbol_name = "_start" };
+        // The ELF entry is the debugger/load entry, not the reset handler.
+        // Real boots still reach `_start` through the Arm vector table or the
+        // RP2350 RISC-V IMAGE_DEF entry-point item.
+        exe.entry = .{ .symbol_name = "_entry_point" };
         exe.link_gc_sections = true;
         exe.bundle_ubsan_rt = false;
         exe.setLinkerScript(sdk.zdk.path(switch (sdk.config.chip) {

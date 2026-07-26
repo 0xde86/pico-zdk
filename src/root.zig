@@ -8,6 +8,28 @@
 //!
 //! Consumers import this module; internal paths under `src/` stay private.
 
+/// Program-level configuration read by the runtime from the firmware root
+/// module. Declaring no `zdk_options` value selects these defaults.
+///
+///     const zdk = @import("pico_zdk");
+///
+///     pub const zdk_options: zdk.Options = .{ .startup = .reset_state };
+pub const Options = struct {
+    /// Startup policy applied before the application enters `main`.
+    startup: Startup = .spec,
+
+    /// Selects the runtime's startup initialization policy.
+    pub const Startup = enum {
+        /// Reserved for the standard clock, tick, and peripheral-reset
+        /// initialization sequence. This sequence is not implemented yet, so
+        /// this currently leaves the hardware in its reset state.
+        spec,
+
+        /// Leaves clocks and peripherals in the state established by reset.
+        reset_state,
+    };
+};
+
 /// Raw register definitions and chip-level capabilities for the selected SoC.
 pub const chip = @import("./chip.zig");
 

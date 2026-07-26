@@ -13,6 +13,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const zdk = @import("pico_zdk");
+
+/// Keeps startup minimal so this example can demonstrate the raw reset state.
+pub const zdk_options: zdk.Options = .{ .startup = .reset_state };
 
 const is_rp2040 = builtin.cpu.arch == .thumb and
     builtin.cpu.model == &std.Target.arm.cpu.cortex_m0plus;

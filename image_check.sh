@@ -92,6 +92,18 @@ check_contains() {
     fi
 }
 
+check_not_contains() {
+    local description="$1"
+    local pattern="$2"
+    local file="$3"
+
+    if grep -Eq -- "${pattern}" "${file}"; then
+        fail "${description}" "unexpected pattern found: ${pattern}"
+    else
+        pass "${description}"
+    fi
+}
+
 # Assert a section lies entirely within the first 4 KiB of flash - the window
 # the RP2350 boot ROM scans for a valid IMAGE_DEF block loop (datasheet 5.1.12).
 # This is the real placement contract; the exact offset is free to move as the
@@ -163,31 +175,32 @@ check_region() {
 # llvm-readelf -SW uses these fields:
 #   [index] name type address offset size ...
 section_address() {
-    llvm-readelf -SW "$1" | awk -v section="$2" '$3 == section { print $5; exit }'
+    llvm-readelf -SW "$1" | awk -v section="$2" '$3 == section && !found { print $5; found = 1 }'
 }
 
 section_size() {
-    llvm-readelf -SW "$1" | awk -v section="$2" '$3 == section { print $7; exit }'
+    llvm-readelf -SW "$1" | awk -v section="$2" '$3 == section && !found { print $7; found = 1 }'
 }
 
 symbol_address() {
-    llvm-readelf -sW "$1" | awk -v symbol="$2" '$8 == symbol { print $2; exit }'
+    llvm-readelf -sW "$1" | awk -v symbol="$2" '$8 == symbol && !found { print $2; found = 1 }'
 }
 
 elf_machine() {
-    llvm-readelf -h "$1" | awk -F: '/Machine:/ { value=$2; sub(/^[[:space:]]+/, "", value); print value; exit }'
+    llvm-readelf -h "$1" |
+        awk -F: '/Machine:/ && !found { value=$2; sub(/^[[:space:]]+/, "", value); print value; found = 1 }'
 }
 
 elf_entry() {
-    llvm-readelf -h "$1" | awk '/Entry point address:/ { print $4; exit }'
+    llvm-readelf -h "$1" | awk '/Entry point address:/ && !found { print $4; found = 1 }'
 }
 
 first_load_vaddr() {
-    llvm-readelf -lW "$1" | awk '$1 == "LOAD" { print $3; exit }'
+    llvm-readelf -lW "$1" | awk '$1 == "LOAD" && !found { print $3; found = 1 }'
 }
 
 first_load_paddr() {
-    llvm-readelf -lW "$1" | awk '$1 == "LOAD" { print $4; exit }'
+    llvm-readelf -lW "$1" | awk '$1 == "LOAD" && !found { print $4; found = 1 }'
 }
 
 # True if the ELF has a dedicated PT_LOAD describing initialized .data: a LOAD
@@ -268,17 +281,24 @@ check_common_elf() {
     local disassembly="${work_dir}/${label}.disassembly.txt"
     local text_size
     local start_symbol
+    local entry_symbol
     local entry_point
 
     check_text "${label}: ELF machine" "${expected_machine}" "$(elf_machine "${elf}")"
 
-    # Relational invariant: the ELF entry point is whatever address _start
-    # resolves to. Comparing the two symbols - instead of a hardcoded offset -
-    # stays correct when the layout shifts (e.g. a new IMAGE_DEF item moves
-    # _start without changing that the entry still equals it).
+    # Debuggers and early core-1 guards enter through _entry_point so the ROM
+    # repeats the normal flash boot. Real boots use _start through the Arm vector
+    # table or the RISC-V IMAGE_DEF item. These symbols must remain distinct.
     start_symbol="$(symbol_address "${elf}" _start)"
+    entry_symbol="$(symbol_address "${elf}" _entry_point)"
     entry_point="$(elf_entry "${elf}")"
-    check_hex "${label}: ELF entry point equals _start" "${start_symbol}" "${entry_point}"
+    check_hex "${label}: ELF entry point equals _entry_point" "${entry_symbol}" "${entry_point}"
+    if [[ "${start_symbol}" != "${entry_symbol}" ]]; then
+        pass "${label}: debugger entry is distinct from reset handler"
+    else
+        fail "${label}: debugger entry is distinct from reset handler" \
+            "both resolve to 0x${start_symbol:-<missing>}"
+    fi
 
     # _start must reside in the XIP flash region; its exact offset is not fixed.
     if [[ "${start_symbol}" == 100* ]]; then
@@ -331,7 +351,7 @@ check_common_elf() {
 
     check_positive_size "${label}: .bss has nonzero size" "${bss_start}" "${bss_end}"
     check_region "${label}: .bss VMA in SRAM" "${bss_start}" 20000000 20090000
-    if llvm-readelf -SW "${elf}" | grep -E "[[:space:]]\.bss[[:space:]]" | grep -q "NOBITS"; then
+    if llvm-readelf -SW "${elf}" | grep -E "[[:space:]]\.bss[[:space:]]" | grep "NOBITS" >/dev/null; then
         pass "${label}: .bss is NOBITS (no flash footprint)"
     else
         fail "${label}: .bss is NOBITS (no flash footprint)"
@@ -339,7 +359,7 @@ check_common_elf() {
 
     # An empty minimal application should remain small. This catches accidental
     # inclusion of the complete UBSan runtime, which previously added >90 KiB.
-    text_size="$(llvm-size -A "${elf}" | awk '$1 == ".text" { print $2; exit }')"
+    text_size="$(llvm-size -A "${elf}" | awk '$1 == ".text" && !found { print $2; found = 1 }')"
     if [[ "${text_size}" =~ ^[0-9]+$ ]] && ((text_size < 4096)); then
         pass "${label}: minimal .text remains below 4 KiB (${text_size} bytes)"
     else
@@ -348,6 +368,50 @@ check_common_elf() {
 
     llvm-objdump -d "${elf}" >"${disassembly}"
     check_contains "${label}: startup reaches application main" '<main\.main>' "${disassembly}"
+}
+
+check_arm_early_startup() {
+    local label="$1"
+    local elf="$2"
+    local expect_msplim="$3"
+    local disassembly="${work_dir}/${label}.early-startup.txt"
+
+    llvm-objdump -d --disassemble-symbols=_start,_entry_point,_enter_vector_table \
+        "${elf}" >"${disassembly}"
+
+    if [[ "${label}" == "rp2040" ]]; then
+        # Armv6-M materializes SIO_BASE through a nearby literal pool outside
+        # the symbol-bounded disassembly, then dereferences CPUID at offset 0.
+        check_contains "${label}: core guard loads the SIO base literal" \
+            'ldr[[:space:]]+r0, \[pc' "${disassembly}"
+        check_contains "${label}: core guard reads CPUID at SIO offset zero" \
+            'ldr[[:space:]]+r0, \[r0\]' "${disassembly}"
+    else
+        check_contains "${label}: core guard reads SIO CPUID" \
+            '0xd0000000|d0000000' "${disassembly}"
+    fi
+    check_contains "${label}: core guard branches through safe ROM return path" \
+        'bne(\.w)?[[:space:]].*<start_cortex_m\._entry_point>' "${disassembly}"
+    check_contains "${label}: debugger entry branches to ROM vector handoff" \
+        'b(\.w)?[[:space:]].*<start_cortex_m\._enter_vector_table>' "${disassembly}"
+    check_contains "${label}: core-0 path branches to initialized runtime" \
+        '_runtime_start' "${disassembly}"
+    check_contains "${label}: ROM handoff installs MSP from vector word 0" \
+        'msr[[:space:]]+msp' "${disassembly}"
+    check_contains "${label}: ROM handoff branches to vector word 1" \
+        'bx[[:space:]]+r2' "${disassembly}"
+    check_not_contains "${label}: early startup has no generated stack frame" \
+        'push|sub(\.w)?[[:space:]]+sp' "${disassembly}"
+    check_not_contains "${label}: address-zero ROM handoff has no panic path" \
+        'FullPanic|castToNull|incorrectAlignment|reachedUnreachable' "${disassembly}"
+
+    if ((expect_msplim)); then
+        check_contains "${label}: debugger entry clears MSPLIM before ROM handoff" \
+            'msr[[:space:]]+msplim' "${disassembly}"
+    else
+        check_not_contains "${label}: Armv6-M startup does not access MSPLIM" \
+            'msplim' "${disassembly}"
+    fi
 }
 
 check_rp2040() {
@@ -379,6 +443,7 @@ check_rp2040() {
     # __stack_top and _start, wherever those land.
     check_hex "rp2040: vector initial SP equals __stack_top" "${stack_top}" "$(read_u32_le "${vectors}" 0)"
     check_hex "rp2040: vector reset handler equals _start" "${start_addr}" "$(read_u32_le "${vectors}" 4)"
+    check_arm_early_startup rp2040 "${elf}" 0
 
     calculated_crc="$(boot2_crc32_mpeg2 "${boot2}")"
     stored_crc="$(read_u32_le "${boot2}" 252)"
@@ -417,6 +482,7 @@ check_rp2350_arm() {
     check_hex "rp2350-arm: LAST item" 000001ff "$(read_u32_le "${image_def}" 8)"
     check_hex "rp2350-arm: self-loop offset" 00000000 "$(read_u32_le "${image_def}" 12)"
     check_hex "rp2350-arm: block end marker" ab123579 "$(read_u32_le "${image_def}" 16)"
+    check_arm_early_startup rp2350-arm "${elf}" 1
 
     llvm-objdump -d "${elf}" >"${disassembly}"
     llvm-readelf -A "${elf}" >"${attributes}"
@@ -492,6 +558,16 @@ check_rp2350_riscv() {
     check_hex "rp2350-riscv: block end marker" ab123579 "$(read_u32_le "${image_def}" 28)"
 
     llvm-objdump -d "${elf}" >"${disassembly}"
+    check_contains "rp2350-riscv: core guard reads mhartid" \
+        'csrr[[:space:]]+a0, mhartid' "${disassembly}"
+    check_contains "rp2350-riscv: core 1 branches to ROM return path" \
+        '<start_hazard3\._entry_point>' "${disassembly}"
+    check_contains "rp2350-riscv: ROM return materializes 0x7dfc high part" \
+        'lui[[:space:]]+t0, 0x8' "${disassembly}"
+    check_contains "rp2350-riscv: ROM return materializes 0x7dfc low part" \
+        'addi[[:space:]]+t0, t0, -0x204' "${disassembly}"
+    check_contains "rp2350-riscv: ROM return jumps through t0" \
+        'jr[[:space:]]+t0' "${disassembly}"
     check_contains "rp2350-riscv: startup initializes gp" 'auipc[[:space:]]+gp' "${disassembly}"
     check_contains "rp2350-riscv: startup initializes sp" 'auipc[[:space:]]+sp' "${disassembly}"
     check_contains "rp2350-riscv: startup installs mtvec" 'csrw[[:space:]]+mtvec' "${disassembly}"

@@ -119,8 +119,8 @@ pub inline fn setDriveStrength(comptime pin: anytype, strength: DriveStrength) v
     chip.pads_bank0.registers.gpio[index].writeMasked(word, mask);
 }
 
-/// Normalizes a comptime pin identifier — a GPIO number or a board `Pin` enum
-/// value — to its integer GPIO index, and rejects pins the selected chip does
+/// Normalizes a comptime pin identifier - a GPIO number or a board `Pin` enum
+/// value - to its integer GPIO index, and rejects pins the selected chip does
 /// not expose. A comptime-known invalid pin is a compile error.
 pub fn pinIndex(comptime pin: anytype) comptime_int {
     const n: comptime_int = switch (@typeInfo(@TypeOf(pin))) {

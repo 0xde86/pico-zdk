@@ -10,14 +10,12 @@
  *   (block loops), 5.1.12 (flash image boot), and 5.2 (boot sequence):
  *   https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf
  * - Raspberry Pi's canonical RP2350 flash linker layout:
- *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/rp2350/memmap_default.ld
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2350/pico_platform/memmap_default.ld
  * - Raspberry Pi's canonical IMAGE_DEF/block-loop emission for Arm/RISC-V:
  *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/embedded_start_block.inc.S
  * - Raspberry Pi Pico 2 board definition (4 MiB installed flash):
  *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/boards/include/boards/pico2.h
  */
-
-ENTRY(_start)
 
 MEMORY
 {
@@ -91,15 +89,17 @@ SECTIONS
 
     .rodata :
     {
-        /* Constants, unwind metadata, and initialization arrays remain in the
-         * flash image. Arm section types and initialization-array rules:
+        /* Constants and unwind metadata remain in the flash image. Arm section
+         * types are specified by:
          * https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst
+         *
+         * No KEEP rule retains .init_array input sections, and the runtime
+         * never walks constructor arrays. C constructors are unsupported.
          */
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         *(.eh_frame_hdr)
         *(.eh_frame .eh_frame.*)
-        KEEP(*(.init_array .init_array.*))
         . = ALIGN(4);
     } > FLASH :flash
 

@@ -9,15 +9,13 @@
  *   2.8.1 (processor-controlled boot):
  *   https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf
  * - Raspberry Pi's canonical RP2040 flash linker layout:
- *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2_common/pico_crt0/rp2040/memmap_default.ld
+ *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/pico_platform/memmap_default.ld
  * - Raspberry Pi Pico board definition (2 MiB installed flash):
  *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/boards/include/boards/pico.h
  * - Raspberry Pi boot2 layout and generic 03h implementation:
  *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot_stage2.ld
  *   https://github.com/raspberrypi/pico-sdk/blob/2.3.0/src/rp2040/boot_stage2/boot2_generic_03h.S
  */
-
-ENTRY(_start)
 
 MEMORY
 {
@@ -89,16 +87,18 @@ SECTIONS
 
     .rodata :
     {
-        /* Zig constants, RISC-V-compatible small read-only data names, unwind
-         * metadata, and initialization arrays all remain in the flash image.
-         * Arm section types and initialization-array rules are specified by:
+        /* Zig constants, RISC-V-compatible small read-only data names, and
+         * unwind metadata remain in the flash image. Arm section types are
+         * specified by:
          * https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst
+         *
+         * No KEEP rule retains .init_array input sections, and the runtime
+         * never walks constructor arrays. C constructors are unsupported.
          */
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         *(.eh_frame_hdr)
         *(.eh_frame .eh_frame.*)
-        KEEP(*(.init_array .init_array.*))
         . = ALIGN(4);
     } > FLASH :flash
 

@@ -1,7 +1,7 @@
 //! Software-controlled digital I/O through the SIO hardware block.
 //!
-//! `init` validates the pin at comptime — a GPIO number or a board `Pin` enum
-//! value; out of range is a compile error — and returns a zero-sized,
+//! `init` validates the pin at comptime - a GPIO number or a board `Pin` enum
+//! value; out of range is a compile error - and returns a zero-sized,
 //! pin-specific handle whose methods drive it:
 //!
 //!     const zdk = @import("pico_zdk");

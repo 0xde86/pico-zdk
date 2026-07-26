@@ -6,6 +6,9 @@
 
 const zdk = @import("pico_zdk");
 
+/// Keeps the reset-default clocking used by this approximate-delay example.
+pub const zdk_options: zdk.Options = .{ .startup = .reset_state };
+
 /// Releases the GPIO blocks, configures the board LED for SIO output, and
 /// toggles it forever using an intentionally approximate delay.
 pub fn main() noreturn {

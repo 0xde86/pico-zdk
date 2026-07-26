@@ -22,6 +22,11 @@ pub export fn _trap_vector() align(4) linksection(".vectors") callconv(.naked) n
 /// Establishes the RISC-V ABI registers and enters the Zig runtime initializer.
 pub export fn _start() linksection(".reset") callconv(.naked) noreturn {
     asm volatile (
+    // Core-1 guard: only core 0 may run the runtime initialization.
+        \\ csrr a0, mhartid       // hart id: 0 on core 0, 1 on core 1. The RISC-V
+        \\                        // counterpart of SIO CPUID, but architecturally
+        \\                        // specified rather than a chip register
+        \\ bnez a0, _entry_point  // back to the ROM's launch-wait loop
         \\ .option push
         \\ .option norelax           // keep the next `la` PC-relative: linker relaxation would
         \\                           // rewrite it as gp-relative, but gp isn't set up yet
@@ -32,6 +37,19 @@ pub export fn _start() linksection(".reset") callconv(.naked) noreturn {
         \\ csrw mtvec, t0            // mtvec packs a base address + a 2-bit MODE in its low bits;
         \\                           // t0 is 4-byte aligned so MODE = 0 (Direct): all traps jump to _trap_vector
         \\ tail _runtime_start       // tail-call the runtime (mem init + call main); never returns
+    );
+}
+
+/// ELF debugger entry point and core-1 return path.
+///
+/// RP2350 exposes a dedicated RISC-V ROM entry instruction at `0x0000_7dfc`.
+/// Address zero contains the Arm vector table and is not executable Hazard3
+/// reset code. Datasheet: RP2350 Table 454, "Bootrom contents at fixed (well
+/// known) addresses for RISC-V code".
+pub export fn _entry_point() align(4) linksection(".reset") callconv(.naked) noreturn {
+    asm volatile (
+        \\ li t0, 0x7dfc
+        \\ jr t0
     );
 }
 
