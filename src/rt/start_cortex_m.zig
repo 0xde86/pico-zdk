@@ -83,14 +83,15 @@ pub export const vector_table linksection(".vectors") = VectorTable{
 /// pushing even one word there.
 pub export fn _start() linksection(".reset") callconv(.naked) noreturn {
     asm volatile (
-        \\ ldr  r0, =0xd0000000
-        \\ ldr  r0, [r0]
-        \\ cmp  r0, #0
-        \\ bne  _entry_point
-        \\ ldr  r0, =vector_table
-        \\ ldr  r1, =0xe000ed08
-        \\ str  r0, [r1]
-        \\ b    _runtime_start
+        \\ ldr  r0, =0xd0000000   // Materialize SIO_BASE without using a stack so CPUID is safe to read on either core.
+        \\ ldr  r0, [r0]          // Read SIO CPUID before shared runtime state can be initialized by the wrong core.
+        \\ cmp  r0, #0            // Test for core 0, the only core allowed to perform global reset-time initialization.
+        \\ bne  _entry_point      // Return core 1 to the ROM launch-wait path before it can touch core 0's stack.
+        \\ ldr  r0, =vector_table // Select the firmware vectors so exceptions after this point reach SDK handlers.
+        \\ ldr  r1, =0xe000ed08   // Materialize SCB_VTOR because the vector-table base must be installed explicitly.
+        \\ str  r0, [r1]          // Point VTOR at the firmware table before entering code that could fault or interrupt.
+        \\ dsb                     // Complete the VTOR write so subsequent exceptions cannot use the previous table.
+        \\ b    _runtime_start    // Enter generated Zig code only after core identity and exception routing are safe.
     );
 }
 
@@ -104,14 +105,14 @@ pub export fn _start() linksection(".reset") callconv(.naked) noreturn {
 pub export fn _entry_point() linksection(".reset") callconv(.naked) noreturn {
     if (is_v6m) {
         asm volatile (
-            \\ movs r0, #0
-            \\ b    _enter_vector_table
+            \\ movs r0, #0              // Select the boot ROM vector table at address zero to replay a hardware boot.
+            \\ b    _enter_vector_table // Use the stackless handoff because the current debugger/core-1 stack is untrusted.
         );
     } else {
         asm volatile (
-            \\ movs r0, #0
-            \\ msr  msplim, r0
-            \\ b    _enter_vector_table
+            \\ movs r0, #0              // Select the boot ROM vector table and provide the value that disables MSPLIM.
+            \\ msr  msplim, r0          // Disable a stale stack limit before the ROM installs and starts using its own MSP.
+            \\ b    _enter_vector_table // Use the shared stackless reset handoff without executing a generated prologue.
         );
     }
 }
@@ -123,11 +124,12 @@ pub export fn _entry_point() linksection(".reset") callconv(.naked) noreturn {
 /// address here, despite being the language-level null pointer value.
 pub export fn _enter_vector_table() linksection(".reset") callconv(.naked) noreturn {
     asm volatile (
-        \\ ldr   r1, =0xe000ed08
-        \\ str   r0, [r1]
-        \\ ldmia r0!, {r1, r2}
-        \\ msr   msp, r1
-        \\ bx    r2
+        \\ ldr   r1, =0xe000ed08    // Materialize SCB_VTOR so exceptions follow the destination boot context.
+        \\ str   r0, [r1]           // Install the destination table before any later instruction can raise an exception.
+        \\ dsb                       // Complete the VTOR write before the destination reset context can take an exception.
+        \\ ldmia r0!, {r1, r2}      // Fetch its initial MSP and reset PC exactly as Cortex-M reset sequencing does.
+        \\ msr   msp, r1            // Replace the untrusted current stack before either ROM or firmware can push data.
+        \\ bx    r2                 // Enter the table's reset handler; BX preserves the Thumb-state bit encoded in it.
     );
 }
 
@@ -143,13 +145,16 @@ pub export fn _runtime_start() callconv(.c) noreturn {
 inline fn enableFpu() void {
     scb_cpacr.* |= cpacr_fpu_full_access;
     asm volatile (
-        \\ dsb
-        \\ isb
+        \\ dsb // Complete the CPACR write before any following memory access or instruction can depend on it.
+        \\ isb // Flush the pipeline so subsequent floating-point instructions observe the new access permission.
         ::: .{ .memory = true });
 }
 
 fn defaultHandler() callconv(.c) noreturn {
     while (true) {
+        // Stop consuming execution bandwidth while an unhandled exception has
+        // nowhere safe to return; a debugger interrupt may wake the core, so
+        // the surrounding loop executes WFI again.
         asm volatile ("wfi");
     }
 }

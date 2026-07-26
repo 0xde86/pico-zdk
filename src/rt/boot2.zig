@@ -19,26 +19,27 @@
 /// (SSIENR=0) while its CTRLR0/SPI_CTRLR0/BAUDR registers are rewritten.
 pub export fn _start() linksection(".text.boot2") callconv(.naked) noreturn {
     asm volatile (
-        \\ ldr r3, =0x18000000   // r3 = XIP_SSI base: the flash serial-interface registers
-        \\ movs r0, #0
-        \\ str r0, [r3, #0x08]   // SSIENR (+0x08) = 0: disable SSI so its config is writable
-        \\ movs r0, #4
-        \\ str r0, [r3, #0x14]   // BAUDR (+0x14) = 4: SCK = clk_sys / 4 (safe, chip-agnostic)
-        \\ ldr r0, =0x001f0300   // CTRLR0: standard SPI, 32-bit data frame (DFS_32=31), EEPROM-read TMOD
-        \\ str r0, [r3, #0x00]   // -> CTRLR0 (+0x00)
-        \\ ldr r0, =0x03000218   // SPI_CTRLR0: XIP cmd=0x03, 8-bit instr, 24-bit addr (ADDR_L=6), 0 dummy
-        \\ ldr r1, =0x180000f4   // r1 = &SPI_CTRLR0 (XIP_SSI base + 0xf4)
-        \\ str r0, [r1]          // -> SPI_CTRLR0
-        \\ movs r0, #0
-        \\ str r0, [r3, #0x04]   // CTRLR1 (+0x04) = 0: frame count (NDF) unused under XIP
-        \\ movs r0, #1
-        \\ str r0, [r3, #0x08]   // SSIENR (+0x08) = 1: re-enable SSI; flash is now XIP-mapped
-        \\ ldr r0, =0x10000100   // r0 = app vector table: flash base 0x1000_0000 + 256-byte boot2
-        \\ ldr r1, =0xe000ed08   // r1 = SCB VTOR (Vector Table Offset Register)
-        \\ str r0, [r1]          // VTOR = 0x1000_0100: CPU now uses the app's vector table
-        \\ ldr r1, [r0, #0]      // r1 = vectors[0] = the app's initial main stack pointer
-        \\ ldr r0, [r0, #4]      // r0 = vectors[1] = the app's reset handler (entry point)
-        \\ msr msp, r1           // MSP = app stack pointer
-        \\ bx r0                 // branch to the reset handler (address LSB=1 keeps Thumb state)
+        \\ ldr r3, =0x18000000 // Materialize XIP_SSI_BASE so boot2 can configure flash before XIP reads are usable.
+        \\ movs r0, #0         // Prepare the disabled value required before changing protected SSI configuration.
+        \\ str r0, [r3, #0x08] // Clear SSIENR so CTRLR0, SPI_CTRLR0, and BAUDR accept the following writes.
+        \\ movs r0, #4         // Choose the conservative divide-by-four serial clock used by generic 03h boot.
+        \\ str r0, [r3, #0x14] // Program BAUDR so initial flash reads do not exceed broadly supported SCK rates.
+        \\ ldr r0, =0x001f0300 // Encode standard SPI, 32-bit frames, and EEPROM-read mode required by XIP reads.
+        \\ str r0, [r3, #0x00] // Program CTRLR0 while SSI is disabled so the controller accepts the new frame mode.
+        \\ ldr r0, =0x03000218 // Encode command 03h, 8 instruction bits, 24 address bits, and no dummy cycles.
+        \\ ldr r1, =0x180000f4 // Materialize SPI_CTRLR0 directly because its offset exceeds Thumb-1 STR-immediate range.
+        \\ str r0, [r1]        // Program the XIP transaction format so mapped reads issue generic 03h commands.
+        \\ movs r0, #0         // Encode NDF=0, which the SSI defines as one 32-bit receive frame in EEPROM-read mode.
+        \\ str r0, [r3, #0x04] // Program CTRLR1 so each translated XIP access performs the required single-frame read.
+        \\ movs r0, #1         // Prepare the enable bit only after every SSI configuration register is complete.
+        \\ str r0, [r3, #0x08] // Re-enable SSI so the application image becomes readable through the XIP window.
+        \\ ldr r0, =0x10000100 // Select the application vectors immediately after the mandatory 256-byte boot2 block.
+        \\ ldr r1, =0xe000ed08 // Materialize SCB_VTOR so exceptions switch from ROM vectors to application vectors.
+        \\ str r0, [r1]        // Install the application table before its reset handler can fault or receive an interrupt.
+        \\ dsb                 // Complete the VTOR write so every subsequent exception uses the application vectors.
+        \\ ldr r1, [r0, #0]    // Fetch the application's initial MSP because boot2's ROM-provided stack must not leak in.
+        \\ ldr r0, [r0, #4]    // Fetch the reset handler chosen by the application rather than assuming a code offset.
+        \\ msr msp, r1         // Install the application stack before entering any generated startup code.
+        \\ bx r0               // Enter its reset handler via BX so the vector's required Thumb-state bit is honored.
     );
 }

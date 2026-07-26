@@ -104,6 +104,21 @@ check_not_contains() {
     fi
 }
 
+check_count_at_least() {
+    local description="$1"
+    local pattern="$2"
+    local minimum="$3"
+    local file="$4"
+    local count
+
+    count="$(grep -Ec -- "${pattern}" "${file}")"
+    if ((count >= minimum)); then
+        pass "${description} (${count} found)"
+    else
+        fail "${description}" "expected at least ${minimum}, found ${count}: ${pattern}"
+    fi
+}
+
 # Assert a section lies entirely within the first 4 KiB of flash - the window
 # the RP2350 boot ROM scans for a valid IMAGE_DEF block loop (datasheet 5.1.12).
 # This is the real placement contract; the exact offset is free to move as the
@@ -400,6 +415,8 @@ check_arm_early_startup() {
         'msr[[:space:]]+msp' "${disassembly}"
     check_contains "${label}: ROM handoff branches to vector word 1" \
         'bx[[:space:]]+r2' "${disassembly}"
+    check_count_at_least "${label}: every early VTOR write is followed by a DSB" \
+        '[[:space:]]dsb([[:space:]]|$)' 2 "${disassembly}"
     check_not_contains "${label}: early startup has no generated stack frame" \
         'push|sub(\.w)?[[:space:]]+sp' "${disassembly}"
     check_not_contains "${label}: address-zero ROM handoff has no panic path" \
@@ -417,6 +434,7 @@ check_arm_early_startup() {
 check_rp2040() {
     local elf="$1"
     local boot2="${work_dir}/rp2040.boot2.bin"
+    local boot2_disassembly="${work_dir}/rp2040.boot2.disassembly.txt"
     local vectors="${work_dir}/rp2040.vectors.bin"
     local calculated_crc
     local stored_crc
@@ -438,6 +456,9 @@ check_rp2040() {
         fail "rp2040: boot sections can be extracted"
         return
     fi
+    llvm-objdump -D --section=.boot2 "${elf}" >"${boot2_disassembly}"
+    check_contains "rp2040: boot2 completes its VTOR write with DSB" \
+        '[[:space:]]dsb([[:space:]]|$)' "${boot2_disassembly}"
 
     # Relational: the vector table's SP/reset words point at the linker's
     # __stack_top and _start, wherever those land.
