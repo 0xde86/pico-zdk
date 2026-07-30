@@ -37,9 +37,18 @@ tools/
   boot2_image/       Host build tool: checksums the RP2040 boot2 into a Zig module
   uf2/               Host build tool: packs a firmware ELF into a drag-and-drop .uf2
 examples/
-  minimal/main.zig   Smallest firmware that builds for the target
-  led_on/main.zig    Turns the on-board LED on with raw register writes (no HAL)
-  blinky/main.zig    LED blink example
+  minimal/main.zig      Smallest firmware that builds for the target
+  led_on/main.zig       Turns the on-board LED on with raw register writes (no HAL)
+  blinky/main.zig       LED blink example
+  clock_gpout/main.zig  Puts clk_sys/1000 on GPIO 21, to measure with an instrument
+```
+
+By default the runtime brings the chip to its datasheet clock speed - 125 MHz on
+the Pico, 150 MHz on the Pico 2 - and starts the 1 microsecond tick domains
+before `main`. Firmware that wants the raw reset state instead declares:
+
+```zig
+pub const zdk_options: zdk.Options = .{ .startup = .reset_state };
 ```
 
 As the SDK grows, `src/` will be organized roughly mirroring the hardware:
@@ -66,6 +75,11 @@ zig build examples
 
 # Build a single example
 zig build blinky
+
+# Put clk_sys / 1000 on GPIO 21 and measure it: 125.000 kHz on the Pico,
+# 150.000 kHz on the Pico 2. A reading off by a percent or more means the
+# chip is still on its ring oscillator.
+zig build clock_gpout
 
 # Run the host-side unit tests
 zig build test
@@ -147,9 +161,9 @@ I want to to try to implement it the way so it feels like the Zig standard libra
   - [x] Add typed RP2040/RP2350 registers and reset control
   - [x] Implement SIO
   - [x] Ship the GPIO HAL and real `blinky` example
-- [ ] Milestone 3 - Clocks and PLLs
-  - [ ] Configure the external crystal oscillator, phase-locked loops, clock generators, and ticks
-  - [ ] Ship the `clock_gpout` example
+- [x] Milestone 3 - Clocks and PLLs
+  - [x] Configure the external crystal oscillator, phase-locked loops, clock generators, and ticks
+  - [x] Ship the `clock_gpout` example
 - [ ] Milestone 4 - Timer and sleep
   - [ ] Add microsecond timing, deadlines, and sleep helpers
   - [ ] Make `blinky` run at an exact 1 Hz

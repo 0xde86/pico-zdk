@@ -20,12 +20,24 @@ pub const Options = struct {
 
     /// Selects the runtime's startup initialization policy.
     pub const Startup = enum {
-        /// Reserved for the standard clock, tick, and peripheral-reset
-        /// initialization sequence. This sequence is not implemented yet, so
-        /// this currently leaves the hardware in its reset state.
+        /// The default init chain: peripheral resets around the clock tree,
+        /// crystal and PLLs at datasheet spec speed, 1 microsecond ticks
+        /// running, and the chip's pad fixes applied. `main` starts with a
+        /// crystal-accurate timebase and every M3-configured block out of reset.
+        /// RTC on RP2040 and HSTX on RP2350 remain reset because their clocks
+        /// and consumers intentionally arrive in later milestones.
+        ///
+        /// The chain contains unbounded waits: a board with no working crystal
+        /// hangs in startup rather than running at an unknown speed.
         spec,
 
-        /// Leaves clocks and peripherals in the state established by reset.
+        /// Performs no clock or peripheral initialization, preserving whatever
+        /// state the reset path, bootrom, bootloader, or debugger handed to this
+        /// program. A normal cold boot runs from the ring oscillator with most
+        /// blocks held in reset, but callers must not assume that state after a
+        /// warm or debugger-assisted entry. For boot oracles and bring-up
+        /// debugging. Anything that depends on timing - which is everything
+        /// from M4 on - needs `.spec`.
         reset_state,
     };
 };
@@ -38,6 +50,19 @@ pub const board = @import("./board.zig");
 
 /// Interfaces for controlling hardware subsystem resets.
 pub const resets = @import("hal/resets.zig");
+
+/// Crystal oscillator startup.
+pub const xosc = @import("hal/xosc.zig");
+
+/// Phase-locked loop configuration, searched and validated at compile time.
+pub const pll = @import("hal/pll.zig");
+
+/// Clock generator configuration, the spec-speed startup plan, and frequency
+/// bookkeeping.
+pub const clocks = @import("hal/clocks.zig");
+
+/// Tick generation: the shared 1 microsecond pulse train timers count.
+pub const ticks = @import("hal/ticks.zig");
 
 /// Physical GPIO pad and function-mux configuration.
 pub const gpio = @import("hal/gpio.zig");

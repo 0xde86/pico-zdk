@@ -109,6 +109,24 @@ pub inline fn reset(comptime pin: anytype) void {
     chip.pads_bank0.registers.gpio[index].write(.{});
 }
 
+/// Enables or disables the pin's digital input buffer, preserving every other
+/// pad field. PADS_BANK0 must be released from reset before calling this
+/// function.
+///
+/// `setFunction` turns the buffer on for any pin it claims, so this exists for
+/// the pins nothing claims. The RP2040's ADC pads (GPIO 26-29) are the case that
+/// matters: a mid-rail analog voltage on a pad whose digital input buffer is
+/// enabled leaks current through that buffer, so the runtime's startup disables
+/// them. The buffer may stay on while a pin drives an output, which is what lets
+/// software read the pad's actual level back.
+pub inline fn setInputEnable(comptime pin: anytype, enable: bool) void {
+    const index = pinIndex(pin);
+    const Pad = chip.pads_bank0.Pad;
+    const mask = comptime mmio.fieldMask(Pad, .input_enable);
+    const word: u32 = @bitCast(Pad{ .input_enable = enable });
+    chip.pads_bank0.registers.gpio[index].writeMasked(word, mask);
+}
+
 /// Sets the pin's nominal output drive strength, preserving every other pad
 /// field. PADS_BANK0 must be released from reset before calling this function.
 pub inline fn setDriveStrength(comptime pin: anytype, strength: DriveStrength) void {

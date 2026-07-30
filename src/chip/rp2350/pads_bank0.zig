@@ -49,8 +49,8 @@ pub const Pad = packed struct(u32) {
     pull_up: bool = false,
     /// `DRIVE`: nominal output drive strength.
     drive: Drive = .ma_4,
-    /// `IE`: digital input-buffer enable. Powers up *disabled* on this chip,
-    /// unlike RP2040, so a pin cannot be read until the HAL enables it.
+    /// `IE`: digital input-buffer enable. Powers up *disabled*, so a pin cannot
+    /// be read until the HAL enables it.
     input_enable: bool = false,
     /// `OD`: output disable. Overrides the output enable coming from SIO or
     /// any peripheral, so it is a high-priority gate.

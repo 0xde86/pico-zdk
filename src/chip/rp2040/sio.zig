@@ -14,10 +14,9 @@ const address_map = @import("./address_map.zig");
 
 /// SIO GPIO register block, GPIO portion only.
 ///
-/// The HI registers cover the six QSPI pins on RP2040 and, unlike RP2350, are
-/// grouped after the low words rather than interleaved. They are modeled so the
-/// low OUT/OE words land at the datasheet offsets and so the two chip facades
-/// export the same register names.
+/// The HI registers cover the six QSPI pins and are grouped after the low words.
+/// They are modeled so the low OUT/OE words land at the datasheet offsets and
+/// the chip facade exports the register names expected by the HAL.
 ///
 /// Every word is a `u32` pin bitmask (bit n = GPIO n); the HAL forms `1 << pin`
 /// masks and never reads a status bit through a value type.
@@ -71,9 +70,8 @@ pub const registers: *volatile Registers =
 comptime {
     const std = @import("std");
 
-    // Register offsets per the datasheet. On RP2040 the low group is contiguous
-    // and the HI group follows it, so GPIO_OUT_SET is at 0x14 and GPIO_OE_SET at
-    // 0x24 - the offsets the RP2350 interleave deliberately breaks.
+    // Register offsets per the datasheet. The low group is contiguous and the
+    // HI group follows it, so GPIO_OUT_SET is at 0x14 and GPIO_OE_SET at 0x24.
     std.debug.assert(@offsetOf(Registers, "cpuid") == 0x00);
     std.debug.assert(@offsetOf(Registers, "gpio_in") == 0x04);
     std.debug.assert(@offsetOf(Registers, "gpio_hi_in") == 0x08);

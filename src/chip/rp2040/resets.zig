@@ -7,8 +7,8 @@ const address_map = @import("./address_map.zig");
 
 /// Bit position of each resettable subsystem within the RESETS registers.
 ///
-/// Positions are chip-specific; the member names shared with RP2350 are
-/// part of the cross-chip contract probed in `chip.zig`.
+/// Positions are chip-specific; the member names form the portable contract
+/// probed in `chip.zig`.
 pub const Block = enum(u5) {
     adc = 0,
     busctrl = 1,
@@ -79,3 +79,76 @@ pub const Registers = extern struct {
 /// The RESETS peripheral at its RP2040 base address.
 pub const registers: *volatile Registers =
     @ptrFromInt(address_map.resets_base);
+
+/// Every subsystem this chip's RESETS block controls: 25 bits.
+/// The startup chain's masks are carved out of this inventory.
+pub const all_blocks_mask: u32 = maskExcluding(&.{});
+
+/// Blocks the startup chain's early reset step must leave running.
+///
+/// IO_QSPI and PADS_QSPI carry the flash this code executes from, so resetting
+/// them is instant death. The PLLs are excluded because clock muxing is not yet
+/// in a reset-safe state. USBCTRL and SYSCFG are excluded because resetting them
+/// breaks USB-to-SWD debug setups.
+pub const early_reset_mask: u32 = maskExcluding(&.{
+    .io_qspi,
+    .pads_qspi,
+    .pll_sys,
+    .pll_usb,
+    .syscfg,
+    .usbctrl,
+});
+
+/// Blocks the chain releases before the clock tree is configured: everything
+/// clocked only from `clk_sys` and `clk_ref`.
+///
+/// The excluded blocks need a peripheral clock that does not exist yet - ADC
+/// wants `clk_adc`, the RTC `clk_rtc`, SPI and UART `clk_peri`, USBCTRL
+/// `clk_usb` - and their `RESET_DONE` would never assert. ADC, SPI, UART, and
+/// USBCTRL are released after M3 brings their clocks up; RTC stays reset until
+/// M15. This split is stated explicitly because the old blanket wording
+/// incorrectly implied that M3 also released RTC.
+pub const early_release_mask: u32 = maskExcluding(&.{
+    .adc,
+    .rtc,
+    .spi0,
+    .spi1,
+    .uart0,
+    .uart1,
+    .usbctrl,
+});
+
+/// Blocks the chain releases once every M3-configured peripheral clock is
+/// running.
+///
+/// This is the whole inventory except RTC. M3 deliberately leaves `clk_rtc`
+/// unconfigured (M15 owns it), and `RESET_DONE` for a block whose functional
+/// clock is stopped never asserts, so releasing the RTC here would hang the
+/// release poll. Calling this "every peripheral" previously hid that intentional
+/// deferral; M15 configures `clk_rtc` and moves RTC into this mask.
+pub const post_clock_release_mask: u32 = maskExcluding(&.{.rtc});
+
+/// Returns the mask of every block except those in `exclusions`.
+fn maskExcluding(comptime exclusions: []const Block) u32 {
+    comptime {
+        var mask: u32 = 0;
+        for (@typeInfo(Block).@"enum".fields) |field| mask |= @as(u32, 1) << field.value;
+        for (exclusions) |block| mask &= ~(@as(u32, 1) << @intFromEnum(block));
+        return mask;
+    }
+}
+
+comptime {
+    const std = @import("std");
+
+    // The chain masks, against the words worked through in the manual's
+    // startup tables. A drift here means a block silently changed sides.
+    std.debug.assert(all_blocks_mask == 0x01ff_ffff);
+    std.debug.assert(early_reset_mask == 0x00fb_cdbf);
+    std.debug.assert(early_release_mask == 0x003c_7ffe);
+    std.debug.assert(post_clock_release_mask == 0x01ff_7fff);
+
+    // Every exclusion is genuinely absent, and nothing else is.
+    std.debug.assert(all_blocks_mask & ~early_reset_mask == 0x0104_3240);
+    std.debug.assert(all_blocks_mask & ~early_release_mask == 0x01c3_8001);
+}

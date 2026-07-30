@@ -6,8 +6,8 @@ const mmio = @import("../mmio.zig");
 const address_map = @import("./address_map.zig");
 
 /// GPIOx_STATUS: read-only view of a pin's post-override output, output-enable,
-/// input, and interrupt-to-processor signals. RP2350 exposes fewer status bits
-/// than RP2040 (no pre-override "from peri"/"from pad" mirrors except INFROMPAD).
+/// input, and interrupt-to-processor signals. There are no pre-override
+/// "from peri"/"from pad" mirrors except INFROMPAD.
 pub const GpioStatus = packed struct(u32) {
     _reserved0: u9 = 0,
     /// Output signal to the pad, after the OUTOVER override.
@@ -51,8 +51,8 @@ pub const OeOverride = enum(u2) {
 
 /// FUNCSEL encoding: the peripheral family whose signals the mux routes to a pin.
 ///
-/// Values are RP2350-specific; the member names shared with RP2040 are part of
-/// the cross-chip contract probed in `chip.zig`.
+/// Values are RP2350-specific; the member names form the portable contract
+/// probed in `chip.zig`.
 ///
 /// Non-exhaustive because FUNCSEL is a full 5-bit field: encodings with no
 /// named family here (funcsel 0 means something different on nearly every pin)
@@ -68,14 +68,13 @@ pub const FuncSel = enum(u5) {
     i2c = 3,
     /// One channel of one PWM slice; the pin decides which.
     pwm = 4,
-    /// Software-controlled GPIO through SIO. Same encoding on RP2040.
+    /// Software-controlled GPIO through SIO.
     sio = 5,
     /// PIO block 0. Any pin in the bank can be claimed by a state machine.
     pio0 = 6,
     /// PIO block 1. Any pin in the bank can be claimed by a state machine.
     pio1 = 7,
-    /// Third PIO block; no RP2040 equivalent, which is why RP2040 can encode
-    /// `gpclk` at 8 and this chip cannot.
+    /// Third PIO block, encoded at 8.
     pio2 = 8,
     /// General-purpose clock in/out.
     gpclk = 9,
@@ -83,6 +82,36 @@ pub const FuncSel = enum(u5) {
     none = 31,
     _,
 };
+
+/// General-purpose clock signal a pin carries under FUNCSEL `gpclk`.
+///
+/// The four `gpout` signals are the CLOCKS block's clock outputs; the two `gpin`
+/// signals are external clock inputs, modeled here but with no M3 consumer.
+pub const GpclkSignal = enum { gpout0, gpout1, gpout2, gpout3, gpin0, gpin1 };
+
+/// The clock signal FUNCSEL `gpclk` routes to `pin`, or null if the pin has no
+/// clock function.
+///
+/// This chip offers `gpout0`/`gpout1` and `gpin0`/`gpin1` on pins 12-15 and
+/// 20-25. On the Pico 2 board GPIO 21 is the clock output to reach for: 23, 24,
+/// and 25 drive the SMPS mode pin, VBUS sense, and the LED.
+///
+/// Source: RP2350 datasheet §9.4, "GPIO Functions" (the F9 column).
+pub fn gpclkSignal(comptime pin: u8) ?GpclkSignal {
+    return switch (pin) {
+        12 => .gpin0,
+        13 => .gpout0,
+        14 => .gpin1,
+        15 => .gpout1,
+        20 => .gpin0,
+        21 => .gpout0,
+        22 => .gpin1,
+        23 => .gpout1,
+        24 => .gpout2,
+        25 => .gpout3,
+        else => null,
+    };
+}
 
 /// Whether `f` can be routed to `pin`.
 ///
@@ -92,14 +121,16 @@ pub const FuncSel = enum(u5) {
 /// rejected here until the milestone that routes them transcribes the table.
 ///
 /// SIO, PIO, and NULL carry no such identity - the pin number *is* the
-/// parameter - so they are available on every pin the bank defines. Pins
-/// outside the register map are rejected; the HAL additionally rejects pins
-/// the selected package does not bond (`chip.gpio_count`).
+/// parameter - so they are available on every pin the bank defines. GPCLK has
+/// its table transcribed in `gpclkSignal`. Pins outside the register map are
+/// rejected; the HAL additionally rejects pins the selected package does not
+/// bond (`chip.gpio_count`).
 pub fn isAvailable(comptime pin: u8, comptime f: FuncSel) bool {
     if (pin >= num_gpios) return false;
     return switch (f) {
         .sio, .pio0, .pio1, .pio2, .none => true,
-        .spi, .uart, .i2c, .pwm, .gpclk => @compileError(
+        .gpclk => gpclkSignal(pin) != null,
+        .spi, .uart, .i2c, .pwm => @compileError(
             "RP2350 pin table for FUNCSEL '" ++ @tagName(f) ++ "' is not transcribed yet",
         ),
         // An encoding with no named family cannot be selected through the HAL.
@@ -107,9 +138,8 @@ pub fn isAvailable(comptime pin: u8, comptime f: FuncSel) bool {
     };
 }
 
-/// GPIOx_CTRL: pin function select plus per-signal overrides. The override
-/// fields sit at different bit positions than on RP2040 (OUTOVER/OEOVER moved
-/// up to bits 12..15).
+/// GPIOx_CTRL: pin function select plus per-signal overrides.
+/// OUTOVER and OEOVER occupy bits 12..15.
 pub const GpioCtrl = packed struct(u32) {
     /// Peripheral routed to the pin.
     funcsel: FuncSel = .none,
@@ -181,6 +211,20 @@ comptime {
     std.debug.assert(isAvailable(num_gpios - 1, .sio));
     std.debug.assert(isAvailable(num_gpios - 1, .pio2));
     std.debug.assert(!isAvailable(num_gpios, .sio));
+
+    // The clock pin table has groups at 12-15 and 20-25.
+    std.debug.assert(gpclkSignal(21).? == .gpout0);
+    std.debug.assert(gpclkSignal(23).? == .gpout1);
+    std.debug.assert(gpclkSignal(24).? == .gpout2);
+    std.debug.assert(gpclkSignal(25).? == .gpout3);
+    std.debug.assert(gpclkSignal(20).? == .gpin0);
+    std.debug.assert(gpclkSignal(22).? == .gpin1);
+    std.debug.assert(gpclkSignal(13).? == .gpout0);
+    std.debug.assert(gpclkSignal(15).? == .gpout1);
+    std.debug.assert(gpclkSignal(12).? == .gpin0);
+    std.debug.assert(gpclkSignal(14).? == .gpin1);
+    std.debug.assert(isAvailable(21, .gpclk));
+    std.debug.assert(!isAvailable(0, .gpclk));
 
     std.debug.assert(@intFromEnum(Override.normal) == 0);
     std.debug.assert(@intFromEnum(Override.invert) == 1);

@@ -61,8 +61,8 @@ pub const OeOverride = enum(u2) {
 
 /// FUNCSEL encoding: the peripheral family whose signals the mux routes to a pin.
 ///
-/// Values are RP2040-specific; the member names shared with RP2350 are part of
-/// the cross-chip contract probed in `chip.zig`.
+/// Values are RP2040-specific; the member names form the portable contract
+/// probed in `chip.zig`.
 ///
 /// Non-exhaustive because FUNCSEL is a full 5-bit field: encodings with no
 /// named family here (funcsel 0 means something different on nearly every pin)
@@ -78,7 +78,7 @@ pub const FuncSel = enum(u5) {
     i2c = 3,
     /// One channel of one PWM slice; the pin decides which.
     pwm = 4,
-    /// Software-controlled GPIO through SIO. Same encoding on RP2350.
+    /// Software-controlled GPIO through SIO.
     sio = 5,
     /// PIO block 0. Any pin in the bank can be claimed by a state machine.
     pio0 = 6,
@@ -91,6 +91,31 @@ pub const FuncSel = enum(u5) {
     _,
 };
 
+/// General-purpose clock signal a pin carries under FUNCSEL `gpclk`.
+///
+/// The four `gpout` signals are the CLOCKS block's clock outputs; the two `gpin`
+/// signals are external clock inputs, modeled here but with no M3 consumer.
+pub const GpclkSignal = enum { gpout0, gpout1, gpout2, gpout3, gpin0, gpin1 };
+
+/// The clock signal FUNCSEL `gpclk` routes to `pin`, or null if the pin has no
+/// clock function.
+///
+/// On the Pico board GPIO 21 is the only clock output free on the header:
+/// 23, 24, and 25 drive the SMPS mode pin, VBUS sense, and the LED.
+///
+/// Source: RP2040 datasheet §2.19.2, "Function Select" (the F8 column).
+pub fn gpclkSignal(comptime pin: u8) ?GpclkSignal {
+    return switch (pin) {
+        20 => .gpin0,
+        21 => .gpout0,
+        22 => .gpin1,
+        23 => .gpout1,
+        24 => .gpout2,
+        25 => .gpout3,
+        else => null,
+    };
+}
+
 /// Whether `f` can be routed to `pin`.
 ///
 /// For most families the pin decides *which* instance and signal it gets -
@@ -99,13 +124,15 @@ pub const FuncSel = enum(u5) {
 /// rejected here until the milestone that routes them transcribes the table.
 ///
 /// SIO, PIO, and NULL carry no such identity - the pin number *is* the
-/// parameter - so they are available on every pin the bank defines. Pins
-/// outside the register map are rejected;
+/// parameter - so they are available on every pin the bank defines. GPCLK has
+/// its table transcribed in `gpclkSignal`. Pins outside the register map are
+/// rejected;
 pub fn isAvailable(comptime pin: u8, comptime f: FuncSel) bool {
     if (pin >= num_gpios) return false;
     return switch (f) {
         .sio, .pio0, .pio1, .none => true,
-        .spi, .uart, .i2c, .pwm, .gpclk => @compileError(
+        .gpclk => gpclkSignal(pin) != null,
+        .spi, .uart, .i2c, .pwm => @compileError(
             "RP2040 pin table for FUNCSEL '" ++ @tagName(f) ++ "' is not transcribed yet",
         ),
         // An encoding with no named family cannot be selected through the HAL.
@@ -189,6 +216,19 @@ comptime {
     std.debug.assert(isAvailable(num_gpios - 1, .sio));
     std.debug.assert(isAvailable(num_gpios - 1, .pio1));
     std.debug.assert(!isAvailable(num_gpios, .sio));
+
+    // The clock pin table: outputs on 21/23/24/25, inputs on 20/22, and no
+    // clock signal on any other pin.
+    std.debug.assert(gpclkSignal(21).? == .gpout0);
+    std.debug.assert(gpclkSignal(23).? == .gpout1);
+    std.debug.assert(gpclkSignal(24).? == .gpout2);
+    std.debug.assert(gpclkSignal(25).? == .gpout3);
+    std.debug.assert(gpclkSignal(20).? == .gpin0);
+    std.debug.assert(gpclkSignal(22).? == .gpin1);
+    std.debug.assert(gpclkSignal(13) == null);
+    std.debug.assert(gpclkSignal(15) == null);
+    std.debug.assert(isAvailable(21, .gpclk));
+    std.debug.assert(!isAvailable(0, .gpclk));
 
     std.debug.assert(@intFromEnum(Override.normal) == 0);
     std.debug.assert(@intFromEnum(Override.invert) == 1);

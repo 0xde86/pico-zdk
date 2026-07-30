@@ -11,6 +11,7 @@
 
 const app = @import("app");
 const zdk = @import("pico_zdk");
+const init = @import("init.zig");
 
 /// Program options in force, read from the firmware root module.
 pub const options: zdk.Options = if (@hasDecl(app, "zdk_options")) app.zdk_options else .{};
@@ -39,12 +40,13 @@ pub inline fn entry() noreturn {
 }
 
 /// Applies `options.startup` after static storage exists and before `main`.
+///
+/// The chain runs after `memoryInit` because it records the clock frequencies it
+/// establishes in static storage, which `.bss` initialization would otherwise
+/// wipe out afterwards.
 inline fn startupInit() void {
     switch (options.startup) {
-        .spec => {
-            // TODO: Implement the standard clock, tick, and peripheral-reset
-            // initialization sequence.
-        },
+        .spec => init.spec(),
         // Nothing to do by construction: reset already established this state.
         .reset_state => {},
     }

@@ -14,11 +14,10 @@ const address_map = @import("./address_map.zig");
 
 /// SIO GPIO register block, GPIO portion only.
 ///
-/// Unlike RP2040, RP2350 **interleaves** each HI word directly after its low
-/// counterpart, so every low OUT/OE command register sits one word later than
-/// the RP2040 layout (GPIO_OUT_SET at 0x18, GPIO_OE_SET at 0x38). Modeling the
-/// HI words is therefore mandatory even though the A-package (Pico 2) uses only
-/// the low bank: dropping them would give the low words the wrong byte offsets.
+/// Each HI word is interleaved directly after its low counterpart.
+/// GPIO_OUT_SET sits at 0x18 and GPIO_OE_SET at 0x38. Modeling the HI words is
+/// mandatory even though the A-package (Pico 2) uses only the low bank: dropping
+/// them would give the low words the wrong byte offsets.
 ///
 /// Every word is a `u32` pin bitmask (bit n = GPIO n); the HAL forms `1 << pin`
 /// masks and never reads a status bit through a value type.
@@ -72,9 +71,8 @@ pub const registers: *volatile Registers =
 comptime {
     const std = @import("std");
 
-    // Register offsets per the datasheet. The interleaved HI words push every
-    // low OUT/OE command register one slot past its RP2040 offset - this is the
-    // layout difference the manual (§9.4) and led_on's 0x018/0x038 encode.
+    // Register offsets per the datasheet. The manual (§9.4) and led_on's
+    // 0x018/0x038 constants encode the interleaved HI words.
     std.debug.assert(@offsetOf(Registers, "cpuid") == 0x00);
     std.debug.assert(@offsetOf(Registers, "gpio_in") == 0x04);
     std.debug.assert(@offsetOf(Registers, "gpio_hi_in") == 0x08);

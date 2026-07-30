@@ -1,18 +1,16 @@
 //! Blinky: toggle the on-board LED through the SIO digital-I/O HAL.
 //!
-//! The blink rate is an imprecise busy-wait: the chip is still running on its
-//! reset-default oscillator because configured clocks and a hardware timer
-//! arrive later.
+//! The blink rate is still a busy-wait, so it is approximate - but it is now a
+//! busy-wait on a crystal-derived system clock.
 
 const zdk = @import("pico_zdk");
 
-/// Keeps the reset-default clocking used by this approximate-delay example.
-pub const zdk_options: zdk.Options = .{ .startup = .reset_state };
-
-/// Releases the GPIO blocks, configures the board LED for SIO output, and
-/// toggles it forever using an intentionally approximate delay.
+/// Configures the board LED for SIO output and toggles it forever using an
+/// intentionally approximate delay.
+///
+/// The runtime's default startup already released the GPIO blocks, so this no
+/// longer repeats that reset operation.
 pub fn main() noreturn {
-    zdk.resets.releaseAndWait(&.{ .io_bank0, .pads_bank0 });
     const led = zdk.sio.init(zdk.board.Pin.led, .{
         .direction = .output,
         .initial_value = false,
